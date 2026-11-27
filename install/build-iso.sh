@@ -130,6 +130,8 @@ mkdir -p config/package-lists config/apt config/includes.chroot/usr/local/sbin \
   config/includes.chroot/var/lib/nodo/www
 
 cat > config/package-lists/nodo.list.chroot <<'EOF'
+linux-image-amd64
+live-boot
 hostapd
 dnsmasq
 iw
@@ -164,10 +166,7 @@ ln -sfn /etc/systemd/system/nodo-live.service \
 ln -sfn /dev/null config/includes.chroot/etc/systemd/system/hostapd.service
 ln -sfn /dev/null config/includes.chroot/etc/systemd/system/dnsmasq.service
 
-if ! lb build; then
-  printf 'build-iso: first pass failed while downloading Debian. Trying once more.\n'
-  lb build
-fi
+lb build
 
 iso="$(find "$work" -maxdepth 1 -type f -name '*.hybrid.iso' -print -quit)"
 [[ -n "$iso" ]] || die "live-build finished but no hybrid ISO was found in ${work}"
