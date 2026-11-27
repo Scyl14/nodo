@@ -2,7 +2,7 @@
 
 A local node for when the internet is gone. The console runs on a Debian machine, opens a Wi-Fi named Nodo, and serves this page at `http://10.41.0.1`. Phones nearby use it without a router and without a cloud account.
 
-This repository starts with the console. The Debian installer and the VirtualBox image come after the console is usable.
+This repository has the console source and a first Debian installer. The installer brings up the Wi-Fi only. The VirtualBox image is not published. The console is not copied onto the machine yet.
 
 ## What you can do
 
@@ -33,7 +33,7 @@ The repository and the console are in English.
 
 ## In this repository
 
-Cloning these files does not install a node and does not open a Wi-Fi. The Debian installer and the VirtualBox image are not published yet.
+Cloning these files does not open a Wi-Fi. The installer below does that, on a spare Debian 12 machine, and only after you run it as root.
 
 | Path | What it is |
 | --- | --- |
@@ -42,3 +42,20 @@ Cloning these files does not install a node and does not open a Wi-Fi. The Debia
 | `src/lib/nodo/library.ts` | Short notes kept on the machine |
 | `src/styles.css` | Colors and type |
 | `public/favicon.svg` | The mark |
+| `install/nodo-install.sh` | Debian 12 Wi-Fi setup. Does not install the console |
+| `install/www/index.html` | The short page served at 10.41.0.1 until the console is packaged |
+
+## Installer
+
+`install/nodo-install.sh` is for a spare computer running Debian 12, with a Wi-Fi adapter that can be an access point. Do not run it on a machine you use every day. It does not share that computer's internet.
+
+The install needs a network once, so it can download packages. After that, phones join the Wi-Fi named Nodo and open `http://10.41.0.1`. That page only says the Wi-Fi is up.
+
+```sh
+./install/nodo-install.sh --check --wifi wlan0
+sudo ./install/nodo-install.sh --wifi wlan0
+```
+
+`--check` prints the plan and changes nothing. `--country` defaults to `IT`. Add `--passphrase` only if the Wi-Fi itself should be closed. An open network is the default, because the console, not the Wi-Fi password, is what accepts a person.
+
+This script has not been run on real hardware yet. `--check` is the part that is safe to try.
