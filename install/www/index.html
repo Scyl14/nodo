@@ -133,6 +133,7 @@
       if (state.tab === "maps") initMap();
       if (state.tab === "library" && !state.libOpen && state.libHits == null && !state.libLoading) loadLibrary();
       if (state.tab === "messages" && state.inbox == null && !state.inboxLoading) loadInbox();
+      if (state.tab === "settings" && state.kioskKnown !== true) loadKiosk();
     }
 
     function gate(title, lede, body) {
@@ -260,7 +261,7 @@
       return `${card("People", "Accept or refuse each device. Approved phones stay recognized. You can take access away later.", `<ul>${people}</ul>`)}
       ${card("Clock", state.clockSetByHand ? "Last change was made by hand." : "Still following this browser clock. Set it if the network time is gone.", `<p class="mono">${esc(when(now()))}</p><form data-action="clock"><div class="row"><input name="when" type="datetime-local" aria-label="New date and time"><button class="primary" type="submit">Set clock</button></div></form><p>GPS would set this when a receiver has a fix. None is connected.</p>`)}
       ${card("Model profile", "Sample memory, so you can see which model first boot would pick. The small model is always kept.", `<div class="row">${[4, 8, 16, 32].map((gb) => `<button class="${state.ramGb === gb ? "primary" : "ghost"}" type="button" data-ram="${gb}">${gb} GB</button>`).join("")}</div><p>${esc(model.name)}. ${esc(model.detail)}</p>`)}
-      ${card("Fullscreen", "On at startup opens this page fullscreen when Debian has a graphical login. The page itself still starts on port 80 with no screen.", `<div class="row"><button class="${state.fullscreenBoot ? "primary" : "ghost"}" type="button" data-action="kiosk">${state.fullscreenBoot ? "On at startup" : "Off at startup"}</button></div>`)}
+      ${card("Fullscreen", "On fills this machine's own screen at boot. Off leaves that screen alone. This page stays available either way.", `<div class="row"><button class="${state.fullscreenBoot ? "primary" : "ghost"}" type="button" data-action="kiosk">${state.fullscreenBoot ? "On at startup" : "Off at startup"}</button></div>`)}
       ${card("Chat archive", "Disk space left where saved chats are stored. This is the machine's disk, not the browser.", `<p>${esc(diskLine)}</p><div class="bar"><span style="width:${pct}%"></span></div><p>Ephemeral chats are not written to disk.</p>`)}
       ${card("Recovery", "Keep this on paper, not in a cloud note.", `<p class="mono">${esc(state.recoveryCode)}</p><div class="row"><button class="ghost" type="button" data-action="lock">Lock the console</button></div>`)}`;
     }
@@ -336,7 +337,7 @@
       document.querySelectorAll("[data-action='drop']").forEach((button) => button.addEventListener("click", () => { state.messages = []; state.chatNote = "Discarded. Nothing was written to disk."; state.chatError = false; render(); }));
       document.querySelectorAll("[data-action='lock']").forEach((button) => button.addEventListener("click", () => { state.unlocked = false; render(); }));
       document.querySelectorAll("[data-action='lib-back']").forEach((button) => button.addEventListener("click", () => { state.libOpen = false; render(); }));
-      document.querySelectorAll("[data-action='kiosk']").forEach((button) => button.addEventListener("click", () => { state.fullscreenBoot = !state.fullscreenBoot; render(); }));
+      document.querySelectorAll("[data-action='kiosk']").forEach((button) => button.addEventListener("click", () => { setKiosk(!state.fullscreenBoot); }));
       document.querySelectorAll("[data-action='lib-more']").forEach((button) => button.addEventListener("click", () => { state.libOffset = (state.libOffset || 0) + 40; loadLibrary(); }));
       document.querySelectorAll("[data-read]").forEach((button) => button.addEventListener("click", () => openText(button.dataset.read)));
       document.querySelectorAll("[data-ram]").forEach((button) => button.addEventListener("click", () => { state.ramGb = Number(button.dataset.ram); render(); }));
@@ -412,6 +413,24 @@
         state.clockSetByHand = true;
         render();
       }
+    }
+
+    async function loadKiosk() {
+      state.kioskKnown = true;
+      try {
+        const payload = await (await fetch("/api/kiosk")).json();
+        state.fullscreenBoot = Boolean(payload.on);
+      } catch (error) {
+        state.kioskKnown = false;
+      }
+      if (state.tab === "settings") render();
+    }
+
+    async function setKiosk(on) {
+      const response = await fetch("/api/kiosk", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ on }) });
+      if (response.ok) state.fullscreenBoot = Boolean((await response.json()).on);
+      state.kioskKnown = true;
+      render();
     }
 
     async function loadLibrary() {

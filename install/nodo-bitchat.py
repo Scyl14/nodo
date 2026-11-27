@@ -73,6 +73,7 @@ def pack(text):
 
 
 def ask(question):
+    """One question, with no earlier turns. A new /ai does not continue the last one."""
     payload = json.dumps({
         "messages": [{"role": "user", "content": question}],
         "temperature": 0.3,

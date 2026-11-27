@@ -8,6 +8,7 @@ the question used. No radio, or a busy serial port, just waits and tries again.
 
 import json
 import os
+import queue
 import threading
 import time
 import urllib.error
@@ -122,9 +123,12 @@ def drain_outbox(interface):
             destination = item.get("to")
             if not text or destination in (None, ""):
                 continue
+            channel = int(item.get("channel") or 0)
             try:
-                interface.sendText(text[:220], destinationId=destination, channelIndex=int(item.get("channel") or 0))
-                log_message("meshtastic", "out", destination, text[:220], True)
+                for part in pack(text):
+                    interface.sendText(part, destinationId=destination, channelIndex=channel)
+                    log_message("meshtastic", "out", destination, part, True)
+                    time.sleep(2)
             except Exception:
                 kept.append(line if line.endswith("\n") else line + "\n")
         if kept:
@@ -175,6 +179,7 @@ def message_text(packet):
 
 
 def ask(question):
+    """One question, with no earlier turns. A new /ai does not continue the last one."""
     payload = json.dumps({
         "messages": [{"role": "user", "content": question}],
         "temperature": 0.3,
@@ -191,11 +196,19 @@ def main():
     from meshtastic.serial_interface import SerialInterface
 
     busy = threading.Lock()
+    outgoing = queue.Queue()
 
     def send(interface, destination, channel, text):
         for part in pack(text):
             interface.sendText(part, destinationId=destination, channelIndex=channel or 0)
             time.sleep(2)
+
+    def work(sender, channel, who, question):
+        try:
+            answer = ask(question).strip() or "No answer."
+        except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError):
+            answer = "The model is not running on this machine."
+        outgoing.put((True, sender, channel, who, answer))
 
     def on_receive(packet, interface):
         me = getattr(getattr(interface, "myInfo", None), "my_node_num", None)
@@ -226,22 +239,12 @@ def main():
         else:
             return
         if not question:
-            send(interface, sender, channel, "Write the question after /ai")
+            outgoing.put((False, sender, channel, who, "Write the question after /ai"))
             return
         if not busy.acquire(blocking=False):
-            send(interface, sender, channel, "Busy. Send /ai again in a moment.")
+            outgoing.put((False, sender, channel, who, "Busy. Send /ai again in a moment."))
             return
-        try:
-            try:
-                answer = ask(question).strip()
-            except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError):
-                answer = "The model is not running on this machine."
-            if not answer:
-                answer = "No answer."
-            send(interface, sender, channel, answer)
-            log_message("meshtastic", "out", who, answer, True)
-        finally:
-            busy.release()
+        threading.Thread(target=work, args=(sender, channel, who, question), daemon=True).start()
 
     pub.subscribe(on_receive, "meshtastic.receive")
     while True:
@@ -257,11 +260,26 @@ def main():
         try:
             write_nodes(interface, ports[0])
             apply_name(interface)
+            ticks = 0
             while True:
+                while True:
+                    try:
+                        is_answer, sender, channel, who, text = outgoing.get_nowait()
+                    except queue.Empty:
+                        break
+                    try:
+                        send(interface, sender, channel, text)
+                        if is_answer:
+                            log_message("meshtastic", "out", who, text, True)
+                    finally:
+                        if is_answer:
+                            busy.release()
                 drain_outbox(interface)
-                time.sleep(5)
-                write_nodes(interface, ports[0])
-                apply_name(interface)
+                time.sleep(1)
+                ticks += 1
+                if ticks % 30 == 0:
+                    write_nodes(interface, ports[0])
+                    apply_name(interface)
         finally:
             try:
                 interface.close()

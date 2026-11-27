@@ -19,6 +19,7 @@ NODES = os.environ.get("NODO_NODES", "/run/nodo/nodes.json")
 INBOX = os.environ.get("NODO_INBOX", "/var/lib/nodo/inbox.jsonl")
 RADIO = os.environ.get("NODO_RADIO", "/etc/nodo/radio.json")
 OUTBOX = os.environ.get("NODO_OUTBOX", "/var/lib/nodo/radio-outbox.jsonl")
+KIOSK = os.environ.get("NODO_KIOSK", "/etc/nodo/kiosk")
 HOST = "127.0.0.1"
 PORT = 8090
 
@@ -260,6 +261,24 @@ def queue_radio(payload):
     return {"queued": True}
 
 
+def kiosk_state():
+    try:
+        with open(KIOSK, encoding="utf-8") as handle:
+            on = handle.read().strip() == "on"
+    except OSError:
+        on = False
+    return {"on": on}
+
+
+def set_kiosk(on):
+    os.makedirs(os.path.dirname(KIOSK), exist_ok=True)
+    with open(KIOSK, "w", encoding="utf-8") as handle:
+        handle.write("on\n" if on else "off\n")
+    command = ["systemctl", "enable", "--now", "nodo-kiosk.service"] if on else ["systemctl", "disable", "--now", "nodo-kiosk.service"]
+    subprocess.run(command, timeout=20, check=False)
+    return kiosk_state()
+
+
 def disk():
     path = CHAT_DIR if os.path.isdir(CHAT_DIR) else "/"
     st = os.statvfs(path)
@@ -321,6 +340,9 @@ class Handler(BaseHTTPRequestHandler):
             ident = query.get("id", [""])[0][:300]
             self.send_json(200, read_item(ident))
             return
+        if path == "/kiosk":
+            self.send_json(200, kiosk_state())
+            return
         if path == "/inbox":
             self.send_json(200, inbox_state())
             return
@@ -361,7 +383,7 @@ class Handler(BaseHTTPRequestHandler):
                 json.dump(payload, handle)
             self.send_json(200, {"saved": os.path.basename(dest)})
             return
-        if path in ("/radio", "/radio/send"):
+        if path in ("/radio", "/radio/send", "/kiosk"):
             try:
                 payload = json.loads(raw.decode())
             except json.JSONDecodeError:
@@ -369,6 +391,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if not isinstance(payload, dict):
                 self.send_json(400, {"error": "Not a radio request."})
+                return
+            if path == "/kiosk":
+                self.send_json(200, set_kiosk(bool(payload.get("on"))))
                 return
             if path == "/radio":
                 self.send_json(200, save_radio(payload))
