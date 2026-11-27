@@ -37,6 +37,7 @@ type NodoState = {
   clockOffsetMs: number;
   clockSetByHand: boolean;
   ramGb: number;
+  fullscreenBoot: boolean;
   setup: (password: string) => void;
   acknowledgeRecovery: () => void;
   unlock: (password: string) => boolean;
@@ -50,6 +51,7 @@ type NodoState = {
   removePreset: (id: string) => void;
   setClock: (epochMs: number) => void;
   setRam: (ramGb: number) => void;
+  setFullscreenBoot: (on: boolean) => void;
 };
 
 function hashSecret(value: string): string {
@@ -104,6 +106,7 @@ export const useNodo = create<NodoState>()(
       clockOffsetMs: 0,
       clockSetByHand: false,
       ramGb: 8,
+      fullscreenBoot: true,
       setup: (password) => {
         set({
           passwordHash: hashSecret(password),
@@ -184,6 +187,7 @@ export const useNodo = create<NodoState>()(
       removePreset: (id) => set({ presets: get().presets.filter((preset) => preset.id !== id) }),
       setClock: (epochMs) => set({ clockOffsetMs: epochMs - Date.now(), clockSetByHand: true }),
       setRam: (ramGb) => set({ ramGb }),
+      setFullscreenBoot: (on) => set({ fullscreenBoot: on }),
     }),
     {
       name: "nodo-console",

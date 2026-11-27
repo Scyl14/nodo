@@ -1,0 +1,569 @@
+#!/bin/bash
+# Nodo installer for a machine that already runs Debian 12 or 13.
+# The console uses the network card the PC already has.
+# A Wi-Fi access point is optional, and only if you say yes.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+YES=0
+CHECK=0
+
+die() { printf 'nodo-install: %s\n' "$1" >&2; exit 1; }
+say() { printf '%s\n' "$1"; }
+
+usage() {
+  cat <<'EOF'
+Usage: sudo ./install.sh [--yes] [--check]
+
+  --yes     Take the recommended model, library, and skip the map and Wi-Fi.
+            Still prints every choice before it downloads.
+  --check   Show what this machine would be offered. Change nothing.
+  --help
+
+Run it on Debian 12 or 13. It does not need a Wi-Fi adapter.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --yes) YES=1; shift ;;
+    --check) CHECK=1; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *) die "Unknown argument: $1" ;;
+  esac
+done
+
+if [[ ! -t 0 && "$YES" -ne 1 && "$CHECK" -ne 1 ]]; then
+  die "No terminal to ask questions. Pass --yes or run it in a terminal."
+fi
+
+debian_name="unknown"
+if [[ -r /etc/os-release ]]; then
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  debian_name="${PRETTY_NAME:-unknown}"
+fi
+
+ask() {
+  local prompt="$1" default="$2" reply
+  if [[ "$YES" -eq 1 ]]; then
+    printf '%s\n' "$default"
+    return
+  fi
+  read -r -p "$prompt [$default] " reply
+  printf '%s' "${reply:-$default}"
+}
+
+confirm_default() {
+  local prompt="$1" default="$2" reply
+  if [[ "$YES" -eq 1 ]]; then
+    [[ "$default" == "y" ]]
+    return
+  fi
+  read -r -p "$prompt [$default] " reply
+  reply="${reply:-$default}"
+  [[ "$reply" == "y" || "$reply" == "Y" ]]
+}
+
+ram_gb=0
+free_gb=0
+if [[ -r /proc/meminfo ]]; then
+  ram_kb="$(awk '/MemTotal/ { print $2; exit }' /proc/meminfo)"
+  ram_gb=$((ram_kb / 1024 / 1024))
+fi
+if command -v df >/dev/null 2>&1; then
+  free_kb="$(df -Pk /var 2>/dev/null | awk 'NR==2 { print $4 }')"
+  free_gb=$((free_kb / 1024 / 1024))
+fi
+
+recommend="3"
+if ((ram_gb < 4)); then recommend="1.5"
+elif ((ram_gb < 8)); then recommend="3"
+elif ((ram_gb < 16)); then recommend="7"
+else recommend="14"
+fi
+
+model_need_gb() {
+  case "$1" in
+    1.5) echo 2 ;;
+    3) echo 3 ;;
+    7) echo 8 ;;
+    14) echo 13 ;;
+    *) echo 0 ;;
+  esac
+}
+
+drop_for_disk() {
+  local tier="$1" need
+  need="$(model_need_gb "$tier")"
+  if ((free_gb > 0 && free_gb < need)); then
+    case "$tier" in
+      14) printf '7' ;;
+      7) printf '3' ;;
+      *) printf '1.5' ;;
+    esac
+  else
+    printf '%s' "$tier"
+  fi
+}
+recommend="$(drop_for_disk "$recommend")"
+recommend="$(drop_for_disk "$recommend")"
+recommend="$(drop_for_disk "$recommend")"
+
+gpu="none"
+if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+  gpu="nvidia"
+fi
+
+say "Nodo installer"
+say "  Machine: ${debian_name}"
+say "  RAM: ${ram_gb} GB"
+say "  Free on /var: ${free_gb} GB"
+say "  GPU: ${gpu} (the same model file is used either way)"
+say "  Recommended model: Qwen2.5 ${recommend}B Q4_K_M"
+say "  Library Everything needs about 27 GB free during install."
+say "  A map is a cut of OpenStreetMap, not the planet (about 120 GB)."
+
+if [[ "$CHECK" -eq 1 ]]; then
+  if [[ "${ID:-}" != "debian" ]]; then
+    say "A real run accepts Debian 12 or 13 only."
+  fi
+  say "Check only. Nothing was changed."
+  exit 0
+fi
+
+[[ "$(id -u)" -eq 0 ]] || die "Run as root, or pass --check."
+[[ "${ID:-}" == "debian" && ( "${VERSION_ID:-}" == "12" || "${VERSION_ID:-}" == "13" ) ]] || die "Debian 12 or 13 only. Found ${debian_name}."
+
+say "Installing packages. No model is downloaded yet."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y \
+  ca-certificates curl git python3 python3-venv python3-pip \
+  iw iproute2 nginx build-essential cmake pkg-config \
+  rtl-sdr bluez wireless-regdb
+
+if apt-cache show llama.cpp >/dev/null 2>&1; then
+  apt-get install -y llama.cpp || true
+fi
+if apt-cache show chromium >/dev/null 2>&1; then
+  apt-get install -y chromium || true
+elif apt-cache show chromium-browser >/dev/null 2>&1; then
+  apt-get install -y chromium-browser || true
+fi
+
+say ""
+say "Models, Apache-2.0, Q4_K_M. The 3B stays installed when you pick 7B or 14B."
+say "  1.5   about 1.1 GB   under 4 GB of RAM"
+say "  3     about 1.9 GB   4 to 8 GB"
+say "  7     about 4.7 GB   8 to 16 GB, plus the 3B"
+say "  14    about 9.0 GB   16 GB or more, plus the 3B"
+say "  skip"
+model="$(ask "Which model? Recommended is ${recommend}" "$recommend")"
+case "$model" in
+  1.5|3|7|14|skip) ;;
+  *) die "Model must be 1.5, 3, 7, 14, or skip." ;;
+esac
+if [[ "$model" != "skip" ]]; then
+  need="$(model_need_gb "$model")"
+  if ((free_gb < need)); then
+    die "About ${need} GB free are required for that model. /var has ${free_gb} GB."
+  fi
+fi
+
+lib_default="skip"
+if ((free_gb >= 30)); then lib_default="everything"
+elif ((free_gb >= 12)); then lib_default="essentials"
+fi
+say ""
+say "Library, the public survival-llm set. Not the private build, and not paid books."
+say "  everything   about 8.8 GB down, about 21 GB installed, about 27 GB free needed"
+say "  essentials   about 1.3 GB down, about 3 GB installed, about 10 GB free needed"
+say "  skip"
+library="$(ask "Which library? Suggested: ${lib_default}" "$lib_default")"
+case "$library" in
+  everything|essentials|skip) ;;
+  *) die "Library must be everything, essentials, or skip." ;;
+esac
+if [[ "$library" == "everything" ]]; then
+  reserve=0
+  if [[ "$model" != "skip" ]]; then
+    reserve="$(model_need_gb "$model")"
+  fi
+  if ((free_gb < reserve + 27)); then
+    die "That model plus Everything wants about $((reserve + 27)) GB free. /var has ${free_gb} GB."
+  fi
+fi
+if [[ "$library" == "essentials" && free_gb -lt 10 ]]; then
+  die "Essentials wants about 10 GB free. /var has ${free_gb} GB."
+fi
+
+say ""
+say "Offline map: one OpenStreetMap cut. Example box, west,south,east,north: 9.1,45.4,9.3,45.5"
+say "Press enter to skip. A city is tens of MB. A country can be hundreds of MB."
+if [[ "$YES" -eq 1 ]]; then
+  bbox=""
+else
+  read -r -p "Bounding box, or enter to skip: " bbox
+fi
+if [[ -n "${bbox}" ]]; then
+  [[ "$bbox" =~ ^-?[0-9]+(\.[0-9]+)?,-?[0-9]+(\.[0-9]+)?,-?[0-9]+(\.[0-9]+)?,-?[0-9]+(\.[0-9]+)?$ ]] || die "Box must be four numbers: west,south,east,north"
+fi
+
+wifi_iface=""
+if command -v iw >/dev/null 2>&1; then
+  while read -r iface; do
+    [[ -n "$iface" ]] || continue
+    phy="$(iw dev "$iface" info 2>/dev/null | awk '/wiphy/ { print "phy"$2; exit }')"
+    if [[ -n "$phy" ]] && iw phy "$phy" info 2>/dev/null | grep -q '\* AP'; then
+      wifi_iface="$iface"
+      break
+    fi
+  done < <(iw dev 2>/dev/null | awk '$1=="Interface" { print $2 }')
+fi
+do_wifi=0
+if [[ -n "$wifi_iface" ]]; then
+  say ""
+  say "Optional Wi-Fi access point. The console does not need it. Adapter that can do it: ${wifi_iface}"
+  if confirm_default "Create a Wi-Fi named Nodo on ${wifi_iface}?" "n"; then
+    do_wifi=1
+  fi
+else
+  say "No Wi-Fi adapter that can be an access point. Skipping that. The console still works on the normal network card."
+fi
+
+do_kiosk=0
+if confirm_default "Open the dashboard fullscreen at boot?" "y"; then
+  do_kiosk=1
+fi
+
+install -d -m 0755 \
+  /etc/nodo /var/lib/nodo/models /var/lib/nodo/maps \
+  /var/lib/nodo/chats /var/lib/nodo/files /var/lib/nodo/www \
+  /opt/nodo /usr/local/sbin /run/nodo
+
+cat > /var/lib/nodo/files/README.txt <<'EOF'
+Put PDF files you already own in this folder.
+The installer does not download paid books, and it does not download Hesperian PDFs.
+EOF
+
+fetch() {
+  local url="$1" dest="$2"
+  if [[ -s "$dest" ]]; then
+    say "already present: $dest"
+    return 0
+  fi
+  install -d -m 0755 "$(dirname "$dest")"
+  say "downloading $url"
+  curl -fL --retry 5 --retry-delay 2 -o "${dest}.partial" "$url"
+  mv "${dest}.partial" "$dest"
+}
+
+hf() {
+  local repo="$1" file="$2" dest="$3"
+  fetch "https://huggingface.co/${repo}/resolve/main/${file}" "$dest"
+}
+
+if [[ "$model" != "skip" ]]; then
+  if [[ "$model" == "1.5" || "$model" == "3" || "$model" == "7" || "$model" == "14" ]]; then
+    if [[ "$model" == "1.5" ]]; then
+      hf bartowski/Qwen2.5-1.5B-Instruct-GGUF Qwen2.5-1.5B-Instruct-Q4_K_M.gguf /var/lib/nodo/models/qwen2.5-1.5b-q4.gguf
+      ln -sfn /var/lib/nodo/models/qwen2.5-1.5b-q4.gguf /var/lib/nodo/models/active.gguf
+    fi
+    if [[ "$model" == "3" || "$model" == "7" || "$model" == "14" ]]; then
+      hf bartowski/Qwen2.5-3B-Instruct-GGUF Qwen2.5-3B-Instruct-Q4_K_M.gguf /var/lib/nodo/models/qwen2.5-3b-q4.gguf
+      ln -sfn /var/lib/nodo/models/qwen2.5-3b-q4.gguf /var/lib/nodo/models/active.gguf
+      ln -sfn /var/lib/nodo/models/qwen2.5-3b-q4.gguf /var/lib/nodo/models/small.gguf
+    fi
+    if [[ "$model" == "7" ]]; then
+      hf bartowski/Qwen2.5-7B-Instruct-GGUF Qwen2.5-7B-Instruct-Q4_K_M.gguf /var/lib/nodo/models/qwen2.5-7b-q4.gguf
+      ln -sfn /var/lib/nodo/models/qwen2.5-7b-q4.gguf /var/lib/nodo/models/active.gguf
+    fi
+    if [[ "$model" == "14" ]]; then
+      hf bartowski/Qwen2.5-14B-Instruct-GGUF Qwen2.5-14B-Instruct-Q4_K_M.gguf /var/lib/nodo/models/qwen2.5-14b-q4.gguf
+      ln -sfn /var/lib/nodo/models/qwen2.5-14b-q4.gguf /var/lib/nodo/models/active.gguf
+    fi
+  fi
+fi
+
+llama_bin=""
+if command -v llama-server >/dev/null 2>&1; then
+  llama_bin="$(command -v llama-server)"
+fi
+if [[ -z "$llama_bin" && "$model" != "skip" ]]; then
+  say "Debian has no llama-server package. Building llama.cpp."
+  if [[ ! -d /opt/nodo/src/llama.cpp/.git ]]; then
+    git clone --depth 1 https://github.com/ggml-org/llama.cpp.git /opt/nodo/src/llama.cpp
+  fi
+  cmake_args=(-B /opt/nodo/src/llama.cpp/build -S /opt/nodo/src/llama.cpp)
+  if [[ "$gpu" == "nvidia" ]]; then
+    cmake_args+=(-DGGML_CUDA=ON)
+  else
+    cmake_args+=(-DGGML_CUDA=OFF)
+  fi
+  cmake "${cmake_args[@]}"
+  cmake --build /opt/nodo/src/llama.cpp/build --target llama-server -j"$(nproc)"
+  llama_bin="/opt/nodo/src/llama.cpp/build/bin/llama-server"
+fi
+
+if [[ "$library" != "skip" ]]; then
+  if [[ ! -d /opt/nodo/survival-llm/.git ]]; then
+    git clone --depth 1 https://github.com/anonnerdfrenzy/survival-llm.git /opt/nodo/survival-llm
+  fi
+  python3 -m venv /opt/nodo/survival-llm/.venv
+  /opt/nodo/survival-llm/.venv/bin/pip install -U pip
+  /opt/nodo/survival-llm/.venv/bin/pip install libzim lxml trafilatura
+  if [[ "$library" == "everything" ]]; then
+    LIBRARY_OUT=/var/lib/nodo/library /opt/nodo/survival-llm/.venv/bin/python /opt/nodo/survival-llm/library/build_library.py --public
+  else
+    LIBRARY_OUT=/var/lib/nodo/library /opt/nodo/survival-llm/.venv/bin/python /opt/nodo/survival-llm/library/build_library.py --lite
+  fi
+fi
+
+say "Voice: Piper, and whisper.cpp base. Both can stay unused."
+fetch https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz /opt/nodo/src/piper.tar.gz
+if [[ ! -x /opt/nodo/piper/piper ]]; then
+  tar -xzf /opt/nodo/src/piper.tar.gz -C /opt/nodo
+fi
+fetch https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx /var/lib/nodo/voices/en_US-lessac-medium.onnx
+fetch https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json /var/lib/nodo/voices/en_US-lessac-medium.onnx.json
+fetch https://huggingface.co/rhasspy/piper-voices/resolve/main/it/it_IT/paola/medium/it_IT-paola-medium.onnx /var/lib/nodo/voices/it_IT-paola-medium.onnx
+fetch https://huggingface.co/rhasspy/piper-voices/resolve/main/it/it_IT/paola/medium/it_IT-paola-medium.onnx.json /var/lib/nodo/voices/it_IT-paola-medium.onnx.json
+fetch https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin /var/lib/nodo/voices/ggml-base.bin
+
+if [[ ! -x /opt/nodo/whisper/build/bin/whisper-cli && ! -x /opt/nodo/src/whisper.cpp/build/bin/whisper-cli ]]; then
+  if [[ ! -d /opt/nodo/src/whisper.cpp/.git ]]; then
+    git clone --depth 1 --branch v1.9.6 https://github.com/ggml-org/whisper.cpp.git /opt/nodo/src/whisper.cpp
+  fi
+  cmake -B /opt/nodo/src/whisper.cpp/build -S /opt/nodo/src/whisper.cpp
+  cmake --build /opt/nodo/src/whisper.cpp/build -j"$(nproc)"
+fi
+
+fetch https://github.com/protomaps/go-pmtiles/releases/download/v1.31.2/go-pmtiles_1.31.2_Linux_x86_64.tar.gz /opt/nodo/src/pmtiles.tar.gz
+if [[ ! -x /usr/local/bin/pmtiles ]]; then
+  tar -xzf /opt/nodo/src/pmtiles.tar.gz -C /usr/local/bin pmtiles
+  chmod 755 /usr/local/bin/pmtiles
+fi
+
+if [[ -n "${bbox}" ]]; then
+  planet=""
+  for offset in 1 2 3 4 5 6 7; do
+    day="$(date -u -d "-${offset} days" +%Y%m%d)"
+    url="https://build.protomaps.com/${day}.pmtiles"
+    if curl -fsI -o /dev/null "$url"; then
+      planet="$url"
+      break
+    fi
+  done
+  [[ -n "$planet" ]] || die "Could not find a Protomaps daily build from the last week."
+  say "Cutting the map from ${planet}. The planet file itself is not saved here."
+  pmtiles extract "$planet" /var/lib/nodo/maps/region.pmtiles --bbox="$bbox" --maxzoom=15
+fi
+
+python3 -m venv /opt/nodo/venv
+/opt/nodo/venv/bin/pip install -U pip
+/opt/nodo/venv/bin/pip install meshtastic || say "warning: meshtastic Python package did not install. The map will show no nodes until it does."
+mesh_src=""
+if [[ -f "${ROOT}/install/nodo-mesh-nodes.py" ]]; then
+  mesh_src="${ROOT}/install/nodo-mesh-nodes.py"
+elif [[ -f "${ROOT}/nodo-mesh-nodes.py" ]]; then
+  mesh_src="${ROOT}/nodo-mesh-nodes.py"
+else
+  die "Missing nodo-mesh-nodes.py next to the installer."
+fi
+install -m 0755 "$mesh_src" /usr/local/sbin/nodo-mesh-nodes
+
+cat > /etc/nodo/nodo.env <<EOF
+NODO_CHAT_DIR=/var/lib/nodo/chats
+NODO_LIBRARY=/var/lib/nodo/library
+NODO_FILES=/var/lib/nodo/files
+NODO_MAP=/var/lib/nodo/maps/region.pmtiles
+NODO_MODEL=${model}
+NODO_GPU=${gpu}
+EOF
+chmod 644 /etc/nodo/nodo.env
+
+if [[ "$do_kiosk" -eq 1 ]]; then
+  printf 'on\n' > /etc/nodo/kiosk
+else
+  printf 'off\n' > /etc/nodo/kiosk
+fi
+
+if [[ -n "$llama_bin" && -e /var/lib/nodo/models/active.gguf ]]; then
+  gpu_args=""
+  if [[ "$gpu" == "nvidia" ]]; then
+    gpu_args="--n-gpu-layers 99"
+  fi
+  cat > /etc/systemd/system/nodo-llm.service <<EOF
+[Unit]
+Description=Nodo local model
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/nodo/nodo.env
+ExecStart=${llama_bin} -m /var/lib/nodo/models/active.gguf --host 127.0.0.1 --port 8081 -c 4096 ${gpu_args}
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl enable nodo-llm.service
+fi
+
+cat > /etc/systemd/system/nodo-mesh.service <<'EOF'
+[Unit]
+Description=Record Meshtastic nodes this radio can hear
+After=network.target
+
+[Service]
+Type=oneshot
+Environment=NODO_NODES=/run/nodo/nodes.json
+ExecStart=/opt/nodo/venv/bin/python /usr/local/sbin/nodo-mesh-nodes
+EOF
+
+cat > /etc/systemd/system/nodo-mesh.timer <<'EOF'
+[Unit]
+Description=Refresh Meshtastic nodes every minute
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=60
+
+[Install]
+WantedBy=timers.target
+EOF
+
+primary_ip="$(ip -4 -o addr show scope global | awk '{ print $4 }' | cut -d/ -f1 | head -n 1)"
+[[ -n "$primary_ip" ]] || primary_ip="127.0.0.1"
+
+cat > /var/lib/nodo/www/index.html <<EOF
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Nodo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+  <h1>Nodo</h1>
+  <p>This page is the installer status. The full console is not in this package yet.</p>
+  <ul>
+    <li>Model file: /var/lib/nodo/models/active.gguf</li>
+    <li>Local model port, this machine only: 127.0.0.1:8081</li>
+    <li>Library: /var/lib/nodo/library</li>
+    <li>Your own PDFs: /var/lib/nodo/files</li>
+    <li>Saved chats: /var/lib/nodo/chats</li>
+    <li>Map: /var/lib/nodo/maps/region.pmtiles</li>
+    <li>Heard nodes: /run/nodo/nodes.json</li>
+  </ul>
+  <p>Open this page from another computer at http://${primary_ip}/</p>
+</body>
+</html>
+EOF
+
+cat > /etc/nginx/sites-available/nodo <<'EOF'
+server {
+  listen 80 default_server;
+  listen [::]:80 default_server;
+  server_name _;
+  root /var/lib/nodo/www;
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}
+EOF
+ln -sfn /etc/nginx/sites-available/nodo /etc/nginx/sites-enabled/nodo
+rm -f /etc/nginx/sites-enabled/default
+
+if [[ "$do_wifi" -eq 1 ]]; then
+  apt-get install -y hostapd dnsmasq
+  cat > /etc/nodo/hostapd.conf <<EOF
+interface=${wifi_iface}
+driver=nl80211
+ssid=Nodo
+country_code=IT
+ieee80211d=1
+hw_mode=g
+channel=6
+wmm_enabled=1
+auth_algs=1
+ignore_broadcast_ssid=0
+EOF
+  chmod 600 /etc/nodo/hostapd.conf
+  cat > /etc/nodo/dnsmasq.conf <<EOF
+interface=${wifi_iface}
+bind-interfaces
+listen-address=10.41.0.1
+dhcp-range=10.41.0.50,10.41.0.200,255.255.255.0,12h
+dhcp-option=option:router,10.41.0.1
+dhcp-option=option:dns-server,10.41.0.1
+address=/nodo.local/10.41.0.1
+no-resolv
+EOF
+  cat > /etc/systemd/system/nodo-wifi.service <<EOF
+[Unit]
+Description=Nodo optional Wi-Fi access point
+After=network.target
+
+[Service]
+Type=simple
+ExecStartPre=/sbin/ip link set ${wifi_iface} up
+ExecStartPre=/sbin/ip addr replace 10.41.0.1/24 dev ${wifi_iface}
+ExecStart=/usr/sbin/hostapd /etc/nodo/hostapd.conf
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl disable --now hostapd.service >/dev/null 2>&1 || true
+  systemctl disable --now dnsmasq.service >/dev/null 2>&1 || true
+  systemctl enable nodo-wifi.service
+fi
+
+browser=""
+if command -v chromium >/dev/null 2>&1; then browser="$(command -v chromium)"
+elif command -v chromium-browser >/dev/null 2>&1; then browser="$(command -v chromium-browser)"
+fi
+if [[ -n "$browser" ]]; then
+  cat > /etc/systemd/system/nodo-kiosk.service <<EOF
+[Unit]
+Description=Nodo fullscreen dashboard
+After=nginx.service
+ConditionPathExists=/etc/nodo/kiosk
+
+[Service]
+Type=simple
+Environment=DISPLAY=:0
+ExecStartPre=/bin/bash -c 'test "\$(tr -d \"\\n\" < /etc/nodo/kiosk)" = on'
+ExecStart=${browser} --kiosk --noerrdialogs http://127.0.0.1/
+Restart=on-failure
+
+[Install]
+WantedBy=graphical.target
+EOF
+  if [[ "$do_kiosk" -eq 1 ]]; then
+    systemctl enable nodo-kiosk.service
+  else
+    systemctl disable nodo-kiosk.service >/dev/null 2>&1 || true
+  fi
+fi
+
+systemctl daemon-reload
+nginx -t
+systemctl enable nginx
+systemctl restart nginx
+systemctl enable --now nodo-mesh.timer
+if [[ -n "$llama_bin" && -e /var/lib/nodo/models/active.gguf ]]; then
+  systemctl restart nodo-llm.service || say "warning: the model service did not start. journalctl -u nodo-llm"
+fi
+if [[ "$do_wifi" -eq 1 ]]; then
+  systemctl restart nodo-wifi.service || say "warning: the Wi-Fi access point did not start."
+fi
+
+say ""
+say "Installed. From another computer open http://${primary_ip}/"
+say "That page is the status page. The chat screen is not served from this package yet."
+say "Model, library, voices, and the map file are on disk under /var/lib/nodo."
+say "iFixit and wikiHow are non-commercial. Do not sell this image while they are installed."

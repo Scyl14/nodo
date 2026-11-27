@@ -6,21 +6,24 @@ import {
   Cpu,
   House,
   KeyRound,
+  Map,
   Radio,
   Settings,
   Users,
   Wifi,
 } from "lucide-react";
 import { ARTICLES, searchLibrary } from "@/lib/nodo/library";
+import { getChatDisk } from "@/lib/nodo/disk.server";
 import { formatWhen, modelTier, nowMs, useNodo, type View } from "@/lib/nodo/store";
 
-type Tab = "home" | "llms" | "community" | "radio" | "settings";
+type Tab = "home" | "llms" | "community" | "radio" | "maps" | "settings";
 
 const TABS: { id: Tab; label: string; icon: typeof House }[] = [
   { id: "home", label: "Home", icon: House },
   { id: "llms", label: "LLMs", icon: Cpu },
   { id: "community", label: "Community", icon: Users },
   { id: "radio", label: "Radio", icon: Radio },
+  { id: "maps", label: "Maps", icon: Map },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -99,6 +102,7 @@ export function Console() {
             {tab === "llms" && <Llms />}
             {tab === "community" && <Community />}
             {tab === "radio" && <RadioPanel />}
+            {tab === "maps" && <MapsPanel />}
             {tab === "settings" && view === "console" && <SettingsPanel />}
           </main>
         </>
@@ -610,6 +614,85 @@ function RadioPanel() {
   );
 }
 
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes < 0) return "Not reported";
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const digits = value >= 10 || unit === 0 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unit]}`;
+}
+
+function useArchiveSpace() {
+  const [report, setReport] = useState<"loading" | "unavailable" | { free: number; total: number; chats: number }>("loading");
+
+  useEffect(() => {
+    let cancel = false;
+    getChatDisk()
+      .then((disk) => {
+        if (cancel) return;
+        if (!Number.isFinite(disk.free) || !Number.isFinite(disk.total) || disk.total <= 0) {
+          setReport("unavailable");
+          return;
+        }
+        setReport({ free: disk.free, total: disk.total, chats: disk.chats });
+      })
+      .catch(() => {
+        if (!cancel) setReport("unavailable");
+      });
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  return report;
+}
+
+function ArchiveSpace() {
+  const report = useArchiveSpace();
+  if (report === "loading") {
+    return <p className="mt-3 text-sm text-muted">Checking free space…</p>;
+  }
+  if (report === "unavailable") {
+    return <p className="mt-3 text-sm text-muted">This machine did not report free disk space.</p>;
+  }
+  const used = Math.max(0, report.total - report.free);
+  const usedPct = Math.min(100, Math.round((used / report.total) * 100));
+  return (
+    <div className="mt-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+        <p className="font-medium">{formatBytes(report.free)} free on disk</p>
+        <p className="font-mono text-xs text-muted">{formatBytes(used)} of {formatBytes(report.total)}</p>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-bg" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={usedPct} aria-label="Disk used on the chat drive">
+        <div className="h-full rounded-full bg-primary" style={{ width: `${usedPct}%` }} />
+      </div>
+      <p className="mt-2 text-sm text-muted">
+        {report.chats > 0 ? `Saved chats use ${formatBytes(report.chats)}. ` : "No saved chats yet. "}
+        Ephemeral chats are not written to disk.
+      </p>
+    </div>
+  );
+}
+
+function MapsPanel() {
+  return (
+    <div className="grid gap-4">
+      <Card title="Offline map" text="The installer saves one OpenStreetMap cut on the machine. The whole planet is not downloaded. This preview has no map file.">
+        <p className="mt-3 text-sm text-muted">On the Debian machine the file is /var/lib/nodo/maps/region.pmtiles. OpenStreetMap contributors, via Protomaps.</p>
+      </Card>
+      <Card title="Meshtastic nodes" text="Pins are nodes this radio can hear, and only if they sent a position. Nodes without a position stay in a list. Nothing is invented on the map.">
+        <p className="mt-3 text-sm text-muted">No radio is connected here, so there are no nodes.</p>
+      </Card>
+    </div>
+  );
+}
+
 function SettingsPanel() {
   const people = useNodo((state) => state.people);
   const decide = useNodo((state) => state.decide);
@@ -617,6 +700,8 @@ function SettingsPanel() {
   const lock = useNodo((state) => state.lock);
   const ramGb = useNodo((state) => state.ramGb);
   const setRam = useNodo((state) => state.setRam);
+  const fullscreenBoot = useNodo((state) => state.fullscreenBoot);
+  const setFullscreenBoot = useNodo((state) => state.setFullscreenBoot);
   const setClock = useNodo((state) => state.setClock);
   const clockSetByHand = useNodo((state) => state.clockSetByHand);
   const clockOffsetMs = useNodo((state) => state.clockOffsetMs);
@@ -677,6 +762,18 @@ function SettingsPanel() {
           ))}
         </div>
         <p className="mt-3 text-sm text-muted">{modelTier(ramGb).name}. {modelTier(ramGb).detail}</p>
+      </Card>
+      <Card title="Fullscreen" text="On at startup opens the dashboard fullscreen. Here the switch is saved in this browser. On Debian, the installer writes /etc/nodo/kiosk and a service reads that file.">
+        <button
+          type="button"
+          onClick={() => setFullscreenBoot(!fullscreenBoot)}
+          className={`mt-4 min-h-11 rounded-full px-4 text-sm ${fullscreenBoot ? "bg-primary text-primary-fg" : "border border-border"}`}
+        >
+          {fullscreenBoot ? "On at startup" : "Off at startup"}
+        </button>
+      </Card>
+      <Card title="Chat archive" text="Disk space left where saved chats are stored. This is the machine's disk, not the browser.">
+        <ArchiveSpace />
       </Card>
       <Card title="Recovery" text="Keep this on paper, not in a cloud note.">
         <p className="mt-3 flex items-center gap-2 font-mono text-primary">
