@@ -4,6 +4,8 @@
 # This script is not run from the preview. Run it yourself, on Debian, as root.
 set -euo pipefail
 
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
+
 FRESH=0
 CHECK=0
 
@@ -90,7 +92,7 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y live-build ca-certificates curl
+apt-get install -y live-build debootstrap ca-certificates curl
 
 mkdir -p "$work"
 cd "$work"
