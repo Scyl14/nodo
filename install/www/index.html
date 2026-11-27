@@ -53,12 +53,18 @@
       { id: "radio", topic: "Radio", title: "What each radio is for", body: "The network card this machine already has carries this console. Meshtastic needs a LoRa board for each person and only carries short text. Bitchat is a phone app over Bluetooth, with no extra hardware and a short range. FM listening needs a separate USB receiver. None of these is a replacement for the public telephone network." }
     ];
 
-    const empty = () => ({
-      passwordHash: null, recoveryCode: null, recoveryAcknowledged: false, unlocked: false,
-      view: "console", neighborId: crypto.randomUUID(), people: [], posts: [], presets: [],
-      clockOffsetMs: 0, clockSetByHand: false, ramGb: 8, fullscreenBoot: true, tab: "home",
-      messages: []
-    });
+    function uid() {
+      if (window.crypto && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+      return "id-" + Date.now().toString(16) + "-" + Math.random().toString(16).slice(2);
+    }
+    function empty() {
+      return {
+        passwordHash: null, recoveryCode: null, recoveryAcknowledged: false, unlocked: false,
+        view: "console", neighborId: uid(), people: [], posts: [], presets: [],
+        clockOffsetMs: 0, clockSetByHand: false, ramGb: 8, fullscreenBoot: true, tab: "home",
+        messages: []
+      };
+    }
 
     let state = load();
     function load() {
@@ -95,7 +101,13 @@
     }
     function now() { return Date.now() + state.clockOffsetMs; }
     function esc(value) {
-      return String(value).replace(/[&<>"']/g, (ch) => ({ "&": "&", "<": "<", ">": ">", '"': """, "'": "&#39;" }[ch]));
+      return String(value).replace(/[&<>"']/g, (ch) => {
+        if (ch === "&") return "\u0026amp;";
+        if (ch === "<") return "\u0026lt;";
+        if (ch === ">") return "\u0026gt;";
+        if (ch === '"') return "\u0026quot;";
+        return "\u0026#39;";
+      });
     }
     function formatBytes(bytes) {
       if (!Number.isFinite(bytes)) return "Not reported";
@@ -289,7 +301,7 @@
         const person = state.people.find((entry) => entry.id === state.neighborId);
         if (state.view === "neighbor" && person?.status !== "approved") return;
         const author = state.view === "console" ? "Owner" : person?.name || "Neighbor";
-        state.posts = [{ id: crypto.randomUUID(), author, body: text, at: now() }, ...state.posts].slice(0, 40);
+        state.posts = [{ id: uid(), author, body: text, at: now() }, ...state.posts].slice(0, 40);
         render();
       }
       if (action === "search") {
@@ -301,7 +313,7 @@
         const name = String(data.get("name") || "").trim();
         const mhz = Number(String(data.get("mhz") || "").replace(",", "."));
         if (!name || !Number.isFinite(mhz) || mhz < 87.5 || mhz > 108) return error.textContent = "Use a name and a frequency from 87.5 to 108.";
-        state.presets = [...state.presets, { id: crypto.randomUUID(), name, mhz: mhz.toFixed(1) }];
+        state.presets = [...state.presets, { id: uid(), name, mhz: mhz.toFixed(1) }];
         render();
       }
       if (action === "clock") {
@@ -371,10 +383,20 @@
       }).catch(() => { state.battery = "Not reported"; });
     }
 
-    render();
-    readBattery();
-    refreshDisk();
-    refreshNodes();
+    window.addEventListener("error", (event) => {
+      const box = document.getElementById("app");
+      if (!box) return;
+      box.innerHTML = `<main><article class="card"><h2>The page stopped</h2><p class="err">${esc(event.message || "Unknown error")}</p></article></main>`;
+    });
+
+    try {
+      render();
+      readBattery();
+      refreshDisk();
+      refreshNodes();
+    } catch (error) {
+      app.innerHTML = `<main><article class="card"><h2>The page stopped</h2><p class="err">${esc(error && error.message ? error.message : error)}</p></article></main>`;
+    }
     setInterval(() => {
       if (state.tab === "home" && state.unlocked && !document.activeElement?.closest("form")) render();
     }, 30000);
