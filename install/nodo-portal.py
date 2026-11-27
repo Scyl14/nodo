@@ -16,6 +16,9 @@ CHAT_DIR = os.environ.get("NODO_CHAT_DIR", "/var/lib/nodo/chats")
 LIBRARY = os.environ.get("NODO_LIBRARY", "/var/lib/nodo/library")
 FILES = os.environ.get("NODO_FILES", "/var/lib/nodo/files")
 NODES = os.environ.get("NODO_NODES", "/run/nodo/nodes.json")
+INBOX = os.environ.get("NODO_INBOX", "/var/lib/nodo/inbox.jsonl")
+RADIO = os.environ.get("NODO_RADIO", "/etc/nodo/radio.json")
+OUTBOX = os.environ.get("NODO_OUTBOX", "/var/lib/nodo/radio-outbox.jsonl")
 HOST = "127.0.0.1"
 PORT = 8090
 
@@ -201,6 +204,62 @@ def library_payload(query, offset):
     return {"hits": hits, "summary": summary, "more": more}
 
 
+def radio_state():
+    try:
+        with open(RADIO, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        data = {}
+    return {
+        "meshtasticLong": str(data.get("meshtasticLong") or "")[:36],
+        "meshtasticShort": str(data.get("meshtasticShort") or "")[:4],
+        "bitchatName": str(data.get("bitchatName") or "")[:20],
+    }
+
+
+def inbox_state():
+    messages = []
+    try:
+        with open(INBOX, encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    messages.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except OSError:
+        messages = []
+    return {"messages": messages[-200:], "radio": radio_state()}
+
+
+def save_radio(payload):
+    os.makedirs(os.path.dirname(RADIO), exist_ok=True)
+    current = radio_state()
+    for key, limit in (("meshtasticLong", 36), ("meshtasticShort", 4), ("bitchatName", 20)):
+        if key in payload and isinstance(payload[key], str):
+            current[key] = payload[key].strip()[:limit]
+    with open(RADIO, "w", encoding="utf-8") as handle:
+        json.dump(current, handle)
+    return current
+
+
+def queue_radio(payload):
+    via = payload.get("via")
+    if via not in ("meshtastic", "bitchat"):
+        return {"error": "Choose Meshtastic or Bitchat."}
+    text = str(payload.get("text") or "").strip()
+    who = str(payload.get("to") or "").strip()
+    if not text or not who:
+        return {"error": "A message needs a person and some text."}
+    os.makedirs(os.path.dirname(OUTBOX), exist_ok=True)
+    record = {"via": via, "to": who[:80], "text": text[:400]}
+    with open(OUTBOX, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record) + "\n")
+    return {"queued": True}
+
+
 def disk():
     path = CHAT_DIR if os.path.isdir(CHAT_DIR) else "/"
     st = os.statvfs(path)
@@ -262,6 +321,9 @@ class Handler(BaseHTTPRequestHandler):
             ident = query.get("id", [""])[0][:300]
             self.send_json(200, read_item(ident))
             return
+        if path == "/inbox":
+            self.send_json(200, inbox_state())
+            return
         self.send_json(404, {"error": "Not found."})
 
     def do_POST(self):
@@ -298,6 +360,21 @@ class Handler(BaseHTTPRequestHandler):
             with open(dest, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle)
             self.send_json(200, {"saved": os.path.basename(dest)})
+            return
+        if path in ("/radio", "/radio/send"):
+            try:
+                payload = json.loads(raw.decode())
+            except json.JSONDecodeError:
+                self.send_json(400, {"error": "Not a radio request."})
+                return
+            if not isinstance(payload, dict):
+                self.send_json(400, {"error": "Not a radio request."})
+                return
+            if path == "/radio":
+                self.send_json(200, save_radio(payload))
+                return
+            result = queue_radio(payload)
+            self.send_json(400 if "error" in result else 200, result)
             return
         self.send_json(404, {"error": "Not found."})
 

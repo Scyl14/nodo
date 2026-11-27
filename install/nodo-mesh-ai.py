@@ -15,6 +15,9 @@ import urllib.request
 
 LLM = os.environ.get("NODO_LLM_URL", "http://127.0.0.1:8081/v1/chat/completions")
 NODES = os.environ.get("NODO_NODES", "/run/nodo/nodes.json")
+INBOX = os.environ.get("NODO_INBOX", "/var/lib/nodo/inbox.jsonl")
+RADIO = os.environ.get("NODO_RADIO", "/etc/nodo/radio.json")
+OUTBOX = os.environ.get("NODO_OUTBOX", "/var/lib/nodo/radio-outbox.jsonl")
 LIMIT = 220
 MAX_PARTS = 12
 
@@ -58,7 +61,75 @@ def pack(text):
     return packed
 
 
-def ask(question):
+def log_message(via, direction, who, text, direct):
+    os.makedirs(os.path.dirname(INBOX), exist_ok=True)
+    record = {
+        "at": int(time.time() * 1000),
+        "via": via,
+        "direction": direction,
+        "who": str(who),
+        "text": text[:2000],
+        "direct": bool(direct),
+    }
+    with open(INBOX, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record) + "\n")
+
+
+def radio_names():
+    try:
+        with open(RADIO, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return "", ""
+    long_name = str(data.get("meshtasticLong") or "").strip()[:36]
+    short_name = str(data.get("meshtasticShort") or "").strip()[:4]
+    return long_name, short_name
+
+
+def apply_name(interface):
+    long_name, short_name = radio_names()
+    if not long_name:
+        return
+    key = (long_name, short_name)
+    if getattr(interface, "_nodo_name", None) == key:
+        return
+    try:
+        interface.getNode("^local").setOwner(long_name=long_name, short_name=short_name or long_name[:4])
+        interface._nodo_name = key
+    except Exception:
+        return
+
+
+def drain_outbox(interface):
+    if not os.path.exists(OUTBOX):
+        return
+    import fcntl
+    with open(OUTBOX, "r+", encoding="utf-8") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        lines = handle.readlines()
+        handle.seek(0)
+        handle.truncate()
+        kept = []
+        for line in lines:
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if item.get("via") != "meshtastic":
+                kept.append(line if line.endswith("\n") else line + "\n")
+                continue
+            text = str(item.get("text") or "").strip()
+            destination = item.get("to")
+            if not text or destination in (None, ""):
+                continue
+            try:
+                interface.sendText(text[:220], destinationId=destination, channelIndex=int(item.get("channel") or 0))
+                log_message("meshtastic", "out", destination, text[:220], True)
+            except Exception:
+                kept.append(line if line.endswith("\n") else line + "\n")
+        if kept:
+            handle.writelines(kept)
+        fcntl.flock(handle, fcntl.LOCK_UN)
     payload = json.dumps({
         "messages": [{"role": "user", "content": question}],
         "temperature": 0.3,
@@ -103,6 +174,17 @@ def message_text(packet):
     return text if isinstance(text, str) else None
 
 
+def ask(question):
+    payload = json.dumps({
+        "messages": [{"role": "user", "content": question}],
+        "temperature": 0.3,
+    }).encode()
+    request = urllib.request.Request(LLM, data=payload, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=300) as response:
+        data = json.loads(response.read().decode())
+    return data["choices"][0]["message"]["content"]
+
+
 def main():
     import glob
     from pubsub import pub
@@ -123,15 +205,26 @@ def main():
         text = message_text(packet)
         if not text:
             return
+        destination = packet.get("to")
+        direct = destination not in (None, 0xFFFFFFFF, 4294967295)
+        who = sender
+        try:
+            node = (interface.nodes or {}).get(sender) or (interface.nodes or {}).get(str(sender)) or {}
+            user = node.get("user") or {}
+            who = user.get("longName") or user.get("shortName") or sender
+        except Exception:
+            who = sender
         stripped = text.strip()
         head = stripped.lower()
+        if direct or head == "/ai" or head.startswith("/ai ") or head.startswith("/ai\n"):
+            log_message("meshtastic", "in", who, stripped, direct)
+        channel = packet.get("channel", 0)
         if head == "/ai":
             question = ""
         elif head.startswith("/ai ") or head.startswith("/ai\n"):
             question = stripped[3:].strip()
         else:
             return
-        channel = packet.get("channel", 0)
         if not question:
             send(interface, sender, channel, "Write the question after /ai")
             return
@@ -146,6 +239,7 @@ def main():
             if not answer:
                 answer = "No answer."
             send(interface, sender, channel, answer)
+            log_message("meshtastic", "out", who, answer, True)
         finally:
             busy.release()
 
@@ -162,9 +256,12 @@ def main():
             continue
         try:
             write_nodes(interface, ports[0])
+            apply_name(interface)
             while True:
-                time.sleep(30)
+                drain_outbox(interface)
+                time.sleep(5)
                 write_nodes(interface, ports[0])
+                apply_name(interface)
         finally:
             try:
                 interface.close()

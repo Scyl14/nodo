@@ -132,6 +132,7 @@
       shell(page());
       if (state.tab === "maps") initMap();
       if (state.tab === "library" && !state.libOpen && state.libHits == null && !state.libLoading) loadLibrary();
+      if (state.tab === "messages" && state.inbox == null && !state.inboxLoading) loadInbox();
     }
 
     function gate(title, lede, body) {
@@ -140,8 +141,8 @@
     }
     function shell(body) {
       const pending = state.people.filter((person) => person.status === "pending").length;
-      const tabs = ["home", "llms", "library", "community", "radio", "maps", "settings"].filter((id) => state.view === "console" || id !== "settings");
-      const labels = { home: "Home", llms: "LLMs", library: "Library", community: "Community", radio: "Radio", maps: "Maps", settings: "Settings" };
+      const tabs = ["home", "llms", "library", "messages", "community", "radio", "maps", "settings"].filter((id) => state.view === "console" || (id !== "settings" && id !== "messages"));
+      const labels = { home: "Home", llms: "LLMs", library: "Library", messages: "Messages", community: "Community", radio: "Radio", maps: "Maps", settings: "Settings" };
       app.innerHTML = `
         <header>
           <div><p class="brand">NODO</p><p class="sub">${esc(location.host)} · local only · internet not required</p></div>
@@ -178,6 +179,7 @@
       if (tab === "home") return home();
       if (tab === "llms") return llms();
       if (tab === "library") return library();
+      if (tab === "messages") return messages();
       if (tab === "community") return community();
       if (tab === "radio") return radio();
       if (tab === "maps") return maps();
@@ -214,6 +216,12 @@
       const hits = state.libHits || [];
       const list = hits.map((hit) => `<li class="bubble"><button type="button" data-read="${esc(hit.id)}" style="width:100%;text-align:left;background:transparent;border:0;color:inherit"><span class="mono">${esc(hit.source || "")}</span><br><strong>${esc(hit.title || "Untitled")}</strong></button></li>`).join("");
       return card("Library", "Every imported text on this machine. Search, then open one to read it.", `<form data-action="lib"><div class="row"><input name="q" value="${esc(state.libQuery || "")}" placeholder="Search titles and text" aria-label="Search the library"><button class="primary" type="submit">Search</button></div></form><p>${esc(state.libSummary || "Looking on disk…")}</p><ul>${list || "<li>Nothing matched.</li>"}</ul>${state.libMore ? `<div class="row"><button class="ghost" type="button" data-action="lib-more">More</button></div>` : ""}`);
+    }
+    function messages() {
+      const radio = state.radio || {};
+      const rows = (state.inbox || []).map((item) => `<li class="bubble"><p class="mono">${esc(item.via || "")} · ${esc(item.direction === "out" ? "you → " + (item.who || "") : (item.who || "someone"))}${item.direct ? "" : " · channel"}</p><p style="color:var(--fg);white-space:pre-wrap">${esc(item.text || "")}</p></li>`).join("");
+      return `${card("Your radios", "Meshtastic is the LoRa radio plugged into this machine. Bitchat is the terminal client on Bluetooth. Direct messages to those names show up here.", `<form data-action="radio-setup"><label>Meshtastic long name<input name="long" maxlength="36" value="${esc(radio.meshtasticLong || "")}" placeholder="Nodo"></label><label>Meshtastic short name<input name="short" maxlength="4" value="${esc(radio.meshtasticShort || "")}" placeholder="NOD"></label><label>Bitchat name<input name="bitchat" maxlength="20" value="${esc(radio.bitchatName || "")}" placeholder="nodo"></label><p class="err" data-error></p><div class="row"><button class="primary" type="submit">Save names</button></div></form><p>${esc(state.radioNote || "")}</p>`)}
+      ${card("Direct messages", "Only messages addressed to this node. A channel message is listed when it starts with /ai.", `<ul>${rows || "<li>No direct messages yet.</li>"}</ul><form data-action="radio-send"><div class="row"><select name="via" aria-label="Radio" style="min-height:44px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:0 8px"><option value="meshtastic">Meshtastic</option><option value="bitchat">Bitchat</option></select><input name="to" placeholder="Who" aria-label="Recipient"><input name="text" placeholder="Message" aria-label="Message"><button class="primary" type="submit">Send</button></div></form><p class="err" data-error></p>`)}`;
     }
     function community() {
       const nodes = state.nodes;
@@ -317,7 +325,7 @@
 
     function bind() {
       document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => { state.tab = button.dataset.tab; render(); }));
-      document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => { state.view = button.dataset.view; if (state.view === "neighbor" && state.tab === "settings") state.tab = "home"; render(); }));
+      document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => { state.view = button.dataset.view; if (state.view === "neighbor" && (state.tab === "settings" || state.tab === "messages")) state.tab = "home"; render(); }));
       document.querySelectorAll("form").forEach((item) => item.addEventListener("submit", onSubmit));
       const ack = document.querySelector("[data-ack]");
       const open = document.querySelector("[data-action='ack']");
@@ -395,6 +403,8 @@
         state.presets = [...state.presets, { id: uid(), name, mhz: mhz.toFixed(1) }];
         render();
       }
+      if (action === "radio-setup") saveRadio(data);
+      if (action === "radio-send") sendRadio(data);
       if (action === "clock") {
         const parsed = Date.parse(String(data.get("when") || ""));
         if (!Number.isFinite(parsed)) return;
@@ -463,6 +473,40 @@
       render();
     }
 
+    async function loadInbox() {
+      if (document.activeElement && document.activeElement.closest && document.activeElement.closest("form")) return;
+      state.inboxLoading = true;
+      try {
+        const payload = await (await fetch("/api/inbox")).json();
+        state.inbox = payload.messages || [];
+        state.radio = payload.radio || {};
+      } catch (error) {
+        state.inbox = state.inbox || [];
+      }
+      state.inboxLoading = false;
+      if (state.tab === "messages") render();
+    }
+
+    async function saveRadio(data) {
+      const payload = {
+        meshtasticLong: String(data.get("long") || ""),
+        meshtasticShort: String(data.get("short") || ""),
+        bitchatName: String(data.get("bitchat") || ""),
+      };
+      const response = await fetch("/api/radio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      state.radio = response.ok ? await response.json() : state.radio;
+      state.radioNote = response.ok ? "Saved. The radios pick up the new names on their own." : "Could not save.";
+      render();
+    }
+
+    async function sendRadio(data) {
+      const payload = { via: String(data.get("via") || ""), to: String(data.get("to") || ""), text: String(data.get("text") || "") };
+      const response = await fetch("/api/radio/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const body = await response.json().catch(() => ({}));
+      state.radioNote = response.ok ? "Queued for the radio." : (body.error || "Could not send.");
+      render();
+    }
+
     async function keepChat() {
       if (!state.messages.length) { state.chatNote = "There is nothing to keep."; render(); return; }
       const response = await fetch("/api/archive", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "chat", messages: state.messages }) });
@@ -506,6 +550,11 @@
     } catch (error) {
       app.innerHTML = `<main><article class="card"><h2>The page stopped</h2><p class="err">${esc(error && error.message ? error.message : error)}</p></article></main>`;
     }
+    setInterval(() => {
+      if (state.tab === "messages" && state.view === "console" && state.unlocked && !(document.activeElement && document.activeElement.closest && document.activeElement.closest("form"))) {
+        loadInbox();
+      }
+    }, 5000);
     setInterval(() => {
       if (state.tab === "home" && state.unlocked && !document.activeElement?.closest("form")) render();
     }, 30000);

@@ -51,7 +51,7 @@ uninstall_nodo() {
   fi
   [[ "$(id -u)" -eq 0 ]] || die "Run as root: sudo ./install.sh --uninstall"
   local unit
-  for unit in nodo-kiosk nodo-wifi nodo-llm nodo-portal nodo-mesh-ai nodo-mesh.timer nodo-mesh nodo-hostapd nodo-addr nodo-dnsmasq; do
+  for unit in nodo-kiosk nodo-wifi nodo-llm nodo-portal nodo-bitchat nodo-mesh-ai nodo-mesh.timer nodo-mesh nodo-hostapd nodo-addr nodo-dnsmasq; do
     systemctl disable --now "${unit}.service" >/dev/null 2>&1 || true
     systemctl disable --now "${unit}" >/dev/null 2>&1 || true
   done
@@ -63,6 +63,7 @@ uninstall_nodo() {
     /etc/systemd/system/nodo-mesh.service \
     /etc/systemd/system/nodo-mesh.timer \
     /etc/systemd/system/nodo-mesh-ai.service \
+    /etc/systemd/system/nodo-bitchat.service \
     /etc/systemd/system/nodo-hostapd.service \
     /etc/systemd/system/nodo-addr.service \
     /etc/systemd/system/nodo-dnsmasq.service \
