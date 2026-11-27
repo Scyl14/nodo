@@ -40,8 +40,11 @@
     .switch { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 4px; background: var(--bg); }
     .switch button { min-height: 40px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); padding: 0 14px; }
     .switch button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); }
-    ul { list-style: none; margin: 8px 0 0; padding: 0; }
+    #map { height: 480px; border-radius: 12px; margin-top: 12px; background: #d5d0c4; }
   </style>
+  <link rel="stylesheet" href="/vendor/maplibre-gl.css">
+  <script src="/vendor/maplibre-gl.js"></script>
+  <script src="/vendor/pmtiles.js"></script>
 </head>
 <body>
   <div id="app"></div>
@@ -127,6 +130,7 @@
       const inside = state.view === "console" || neighbor?.status === "approved";
       if (!inside) return shell(gateBody(neighbor));
       shell(page());
+      if (state.tab === "maps") initMap();
     }
 
     function gate(title, lede, body) {
@@ -217,15 +221,17 @@
       ${card("Stations you choose", "FM broadcast only, 87.5 to 108 MHz. This node does not scan private or service channels.", `<form data-action="preset"><div class="row"><input name="name" placeholder="Station name" aria-label="Station name"><input name="mhz" placeholder="98.5" aria-label="Frequency in megahertz" style="max-width:8rem"><button class="primary" type="submit">Save</button></div></form><p class="err" data-error></p><ul>${list}</ul>`)}`;
     }
     function maps() {
-      const nodes = state.nodes;
-      let line = "No radio report yet.";
-      if (nodes) {
-        if (!nodes.radio) line = nodes.note || "No radio is connected.";
-        else if (!nodes.nodes || nodes.nodes.length === 0) line = `Radio ${nodes.radio} is connected. No nodes heard.`;
-        else line = nodes.nodes.map((node) => `${node.name}${typeof node.lat === "number" ? ` at ${node.lat}, ${node.lon}` : " (no position)"}`).join(" · ");
-      }
-      return `${card("Offline map", "The installer saves one OpenStreetMap cut on the machine. The whole planet is not downloaded.", `<p>The file, when you chose an area, is /var/lib/nodo/maps/region.pmtiles. OpenStreetMap contributors, via Protomaps.</p>`)}
-      ${card("Meshtastic nodes", "Pins are nodes this radio can hear, and only if they sent a position. Nodes without a position stay in the list. Nothing is invented on the map.", `<p style="color:var(--fg)">${esc(line)}</p>`)}`;
+      const nodes = (state.nodes && state.nodes.nodes) || [];
+      const pinned = nodes.filter((node) => typeof node.lat === "number" && typeof node.lon === "number");
+      const loose = nodes.filter((node) => typeof node.lat !== "number");
+      const looseLine = nodes.length === 0
+        ? ((state.nodes && state.nodes.note) || "No radio report yet.")
+        : (loose.length ? loose.map((node) => node.name + " (no position)").join(" · ") : "Every heard node has a position.");
+      return card(
+        "Map",
+        "OpenStreetMap, stored on this machine. A node is marked only if it sent a position.",
+        `<div id="map" role="region" aria-label="Offline map"></div><p id="map-note">Loading the saved map…</p><p>${esc(looseLine)}</p><p>${pinned.length} node${pinned.length === 1 ? "" : "s"} on the map. © OpenStreetMap, Protomaps.</p>`
+      );
     }
     function settings() {
       const people = state.people.map((person) => `<li class="bubble"><strong>${esc(person.name)}</strong> <span class="mono">${esc(person.status)}</span><p>${esc(when(person.requestedAt))}</p><div class="row"><button class="primary" type="button" data-decide="${esc(person.id)}" data-status="approved">Accept</button><button class="ghost" type="button" data-decide="${esc(person.id)}" data-status="rejected">Refuse</button></div></li>`).join("") || `<li>No requests yet. Open Neighbor, above, to ask as someone else.</li>`;
@@ -240,6 +246,61 @@
       ${card("Fullscreen", "On at startup opens this page fullscreen when Debian has a graphical login. The page itself still starts on port 80 with no screen.", `<div class="row"><button class="${state.fullscreenBoot ? "primary" : "ghost"}" type="button" data-action="kiosk">${state.fullscreenBoot ? "On at startup" : "Off at startup"}</button></div>`)}
       ${card("Chat archive", "Disk space left where saved chats are stored. This is the machine's disk, not the browser.", `<p>${esc(diskLine)}</p><div class="bar"><span style="width:${pct}%"></span></div><p>Ephemeral chats are not written to disk.</p>`)}
       ${card("Recovery", "Keep this on paper, not in a cloud note.", `<p class="mono">${esc(state.recoveryCode)}</p><div class="row"><button class="ghost" type="button" data-action="lock">Lock the console</button></div>`)}`;
+    }
+
+    async function initMap() {
+      const box = document.getElementById("map");
+      const note = document.getElementById("map-note");
+      if (!box || !note) return;
+      if (!window.maplibregl || !window.pmtiles) {
+        note.textContent = "The map viewer did not load.";
+        return;
+      }
+      if (!window.__nodoPmtiles) {
+        maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
+        window.__nodoPmtiles = true;
+      }
+      const url = new URL("/maps/region.pmtiles", location.origin).href;
+      let header;
+      try {
+        const probe = await fetch(url, { method: "GET", headers: { Range: "bytes=0-0" } });
+        if (!probe.ok && probe.status !== 206) throw new Error("missing");
+        header = await new pmtiles.PMTiles(url).getHeader();
+      } catch (error) {
+        box.style.display = "none";
+        note.textContent = "No map file on this machine yet. During install, give an area and this tab will draw it.";
+        return;
+      }
+      note.textContent = "Drag to move. The wheel zooms. Nodes update when the radio hears them.";
+      const map = new maplibregl.Map({
+        container: box,
+        center: [header.centerLon, header.centerLat],
+        zoom: header.centerZoom || 11,
+        maxZoom: header.maxZoom || 15,
+        style: {
+          version: 8,
+          sources: { nodo: { type: "vector", url: "pmtiles://" + url } },
+          layers: [
+            { id: "bg", type: "background", paint: { "background-color": "#d9d3c3" } },
+            { id: "earth", type: "fill", source: "nodo", "source-layer": "earth", paint: { "fill-color": "#e7e4d4" } },
+            { id: "landcover", type: "fill", source: "nodo", "source-layer": "landcover", paint: { "fill-color": "#c5d0b0", "fill-opacity": 0.8 } },
+            { id: "landuse", type: "fill", source: "nodo", "source-layer": "landuse", paint: { "fill-color": "#d5d8b8", "fill-opacity": 0.7 } },
+            { id: "water", type: "fill", source: "nodo", "source-layer": "water", paint: { "fill-color": "#8aa4b5" } },
+            { id: "roads", type: "line", source: "nodo", "source-layer": "roads", paint: { "line-color": "#fffaf0", "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.3, 14, 3] } },
+            { id: "buildings", type: "fill", source: "nodo", "source-layer": "buildings", minzoom: 13, paint: { "fill-color": "#c9bfa8" } }
+          ]
+        }
+      });
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+      map.fitBounds([[header.minLon, header.minLat], [header.maxLon, header.maxLat]], { padding: 24, animate: false });
+      const nodes = (state.nodes && state.nodes.nodes) || [];
+      nodes.forEach((node) => {
+        if (typeof node.lat !== "number" || typeof node.lon !== "number") return;
+        new maplibregl.Marker({ color: "#8a5a12" })
+          .setLngLat([node.lon, node.lat])
+          .setPopup(new maplibregl.Popup({ offset: 18 }).setText(node.name || "Node"))
+          .addTo(map);
+      });
     }
 
     function bind() {

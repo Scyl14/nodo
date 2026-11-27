@@ -385,6 +385,8 @@ if [[ ! -f "${ROOT}/install/www/index.html" ]]; then
   die "Missing install/www/index.html. That file is the console."
 fi
 install -m 0644 "${ROOT}/install/www/index.html" /var/lib/nodo/www/index.html
+mkdir -p /var/lib/nodo/www/vendor
+cp -a "${ROOT}/install/www/vendor/." /var/lib/nodo/www/vendor/
 
 cat > /etc/nodo/nodo.env <<EOF
 NODO_CHAT_DIR=/var/lib/nodo/chats
@@ -477,6 +479,10 @@ server {
   location /api/ {
     proxy_pass http://127.0.0.1:8090/;
     proxy_read_timeout 300s;
+  }
+  location /maps/ {
+    alias /var/lib/nodo/maps/;
+    default_type application/octet-stream;
   }
   location / {
     try_files $uri $uri/ /index.html;
