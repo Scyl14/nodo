@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { ARTICLES, searchLibrary } from "@/lib/nodo/library";
 import { getChatDisk } from "@/lib/nodo/disk.server";
+import { askModel } from "@/lib/nodo/chat.server";
 import { formatWhen, modelTier, nowMs, useNodo, type View } from "@/lib/nodo/store";
 
 type Tab = "home" | "llms" | "community" | "radio" | "maps" | "settings";
@@ -486,14 +487,65 @@ function Stat({ icon: Icon, label, value, note }: { icon: typeof Clock3; label: 
 function Llms() {
   const ramGb = useNodo((state) => state.ramGb);
   const [query, setQuery] = useState("");
+  const [messages, setMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [draft, setDraft] = useState("");
+  const [pending, setPending] = useState(false);
+  const [chatError, setChatError] = useState("");
   const tier = modelTier(ramGb);
   const hits = searchLibrary(query);
 
   return (
     <div className="grid gap-4">
-      <Card title="Local model" text="Chat stays off until a real model file is on the machine. This preview will not pretend to answer.">
+      <Card title="Chat" text="The conversation is this page. The model stays on this machine and is not a separate site. A reply about health or water is not a clinician.">
         <p className="mt-3 font-mono text-sm text-primary">{tier.name}</p>
-        <p className="mt-1 text-sm text-muted">{tier.detail} First boot reads the real RAM. Here, Settings can change the sample.</p>
+        <ul className="mt-4 grid gap-2">
+          {messages.length === 0 ? <li className="text-sm text-muted">No messages. Nothing is saved until you keep a chat on the Debian machine.</li> : null}
+          {messages.map((message, index) => (
+            <li key={`${message.role}-${index}`} className="rounded-lg bg-bg px-3 py-3 text-sm">
+              <p className="font-mono text-xs text-muted">{message.role === "user" ? "You" : "Nodo"}</p>
+              <p className="mt-1 whitespace-pre-wrap">{message.content}</p>
+            </li>
+          ))}
+        </ul>
+        <form
+          className="mt-4 flex flex-wrap gap-2"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            const text = draft.trim();
+            if (!text || pending) return;
+            const next = [...messages, { role: "user" as const, content: text }];
+            setMessages(next);
+            setDraft("");
+            setPending(true);
+            setChatError("");
+            try {
+              const result = await askModel({ data: { messages: next } });
+              if (!result.ok) {
+                setChatError(result.error);
+                setMessages(messages);
+                return;
+              }
+              setMessages([...next, { role: "assistant", content: result.text }]);
+            } catch {
+              setChatError("The model is not running on this machine.");
+              setMessages(messages);
+            } finally {
+              setPending(false);
+            }
+          }}
+        >
+          <input
+            className={inputClass}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="Ask something"
+            aria-label="Message"
+          />
+          <button type="submit" className="min-h-11 rounded-lg bg-primary px-4 text-sm font-medium text-primary-fg" disabled={pending}>
+            {pending ? "Waiting" : "Send"}
+          </button>
+        </form>
+        {chatError ? <p className="mt-2 text-sm text-danger">{chatError}</p> : null}
       </Card>
       <Card title="Library" text="These notes live on disk. They are an aid, never a substitute for a clinician or a trained technician.">
         <form className="mt-4" onSubmit={(event) => event.preventDefault()}>

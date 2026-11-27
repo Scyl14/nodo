@@ -372,6 +372,19 @@ else
   die "Missing nodo-mesh-nodes.py next to the installer."
 fi
 install -m 0755 "$mesh_src" /usr/local/sbin/nodo-mesh-nodes
+portal_src=""
+if [[ -f "${ROOT}/install/nodo-portal.py" ]]; then
+  portal_src="${ROOT}/install/nodo-portal.py"
+elif [[ -f "${ROOT}/nodo-portal.py" ]]; then
+  portal_src="${ROOT}/nodo-portal.py"
+else
+  die "Missing nodo-portal.py next to the installer."
+fi
+install -m 0755 "$portal_src" /usr/local/sbin/nodo-portal.py
+if [[ ! -f "${ROOT}/install/www/index.html" ]]; then
+  die "Missing install/www/index.html. That file is the console."
+fi
+install -m 0644 "${ROOT}/install/www/index.html" /var/lib/nodo/www/index.html
 
 cat > /etc/nodo/nodo.env <<EOF
 NODO_CHAT_DIR=/var/lib/nodo/chats
@@ -438,29 +451,21 @@ EOF
 primary_ip="$(ip -4 -o addr show scope global | awk '{ print $4 }' | cut -d/ -f1 | head -n 1)"
 [[ -n "$primary_ip" ]] || primary_ip="127.0.0.1"
 
-cat > /var/lib/nodo/www/index.html <<EOF
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Nodo</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-</head>
-<body>
-  <h1>Nodo</h1>
-  <p>This page is the installer status. The full console is not in this package yet.</p>
-  <ul>
-    <li>Model file: /var/lib/nodo/models/active.gguf</li>
-    <li>Local model port, this machine only: 127.0.0.1:8081</li>
-    <li>Library: /var/lib/nodo/library</li>
-    <li>Your own PDFs: /var/lib/nodo/files</li>
-    <li>Saved chats: /var/lib/nodo/chats</li>
-    <li>Map: /var/lib/nodo/maps/region.pmtiles</li>
-    <li>Heard nodes: /run/nodo/nodes.json</li>
-  </ul>
-  <p>Open this page from another computer at http://${primary_ip}/</p>
-</body>
-</html>
+cat > /etc/systemd/system/nodo-portal.service <<'EOF'
+[Unit]
+Description=Nodo console API
+After=network.target
+
+[Service]
+Type=simple
+Environment=NODO_CHAT_DIR=/var/lib/nodo/chats
+Environment=NODO_LLM_URL=http://127.0.0.1:8081/v1/chat/completions
+ExecStart=/usr/bin/python3 /usr/local/sbin/nodo-portal.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
 EOF
 
 cat > /etc/nginx/sites-available/nodo <<'EOF'
@@ -469,6 +474,10 @@ server {
   listen [::]:80 default_server;
   server_name _;
   root /var/lib/nodo/www;
+  location /api/ {
+    proxy_pass http://127.0.0.1:8090/;
+    proxy_read_timeout 300s;
+  }
   location / {
     try_files $uri $uri/ /index.html;
   }
@@ -530,15 +539,15 @@ if [[ -n "$browser" ]]; then
   cat > /etc/systemd/system/nodo-kiosk.service <<EOF
 [Unit]
 Description=Nodo fullscreen dashboard
-After=nginx.service
+After=nginx.service nodo-portal.service
 ConditionPathExists=/etc/nodo/kiosk
 
 [Service]
 Type=simple
 Environment=DISPLAY=:0
-ExecStartPre=/bin/bash -c 'test "\$(tr -d \"\\n\" < /etc/nodo/kiosk)" = on'
 ExecStart=${browser} --kiosk --noerrdialogs http://127.0.0.1/
 Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=graphical.target
@@ -552,10 +561,12 @@ fi
 
 systemctl daemon-reload
 nginx -t
-systemctl enable nginx
+systemctl enable nginx nodo-portal.service
+systemctl restart nodo-portal.service
 systemctl restart nginx
 systemctl enable --now nodo-mesh.timer
 if [[ -n "$llama_bin" && -e /var/lib/nodo/models/active.gguf ]]; then
+  systemctl enable nodo-llm.service
   systemctl restart nodo-llm.service || say "warning: the model service did not start. journalctl -u nodo-llm"
 fi
 if [[ "$do_wifi" -eq 1 ]]; then
@@ -563,7 +574,8 @@ if [[ "$do_wifi" -eq 1 ]]; then
 fi
 
 say ""
-say "Installed. From another computer open http://${primary_ip}/"
-say "That page is the status page. The chat screen is not served from this package yet."
-say "Model, library, voices, and the map file are on disk under /var/lib/nodo."
+say "Installed. The console starts at boot on port 80."
+say "From another computer open http://${primary_ip}/"
+say "The chat is the LLMs tab on that same page. Nothing is published on another port."
+say "Fullscreen at boot needs a graphical login. A server with no screen still serves the page."
 say "iFixit and wikiHow are non-commercial. Do not sell this image while they are installed."

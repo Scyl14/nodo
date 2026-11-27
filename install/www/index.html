@@ -1,58 +1,236 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Nodo</title>
-    <style>
-      :root {
-        color-scheme: dark;
-        --bg: #12140f;
-        --surface: #1c1f17;
-        --fg: #e7e4d4;
-        --muted: #9a967f;
-        --primary: #d6a23a;
-        --border: #34382c;
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nodo</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <style>
+    :root { color-scheme: dark; --bg:#12140f; --surface:#1c1f17; --fg:#e7e4d4; --muted:#9a967f; --primary:#d6a23a; --ink:#1a1408; --border:#34382c; --danger:#c45c4a; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.45 "IBM Plex Sans", sans-serif; }
+    header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+    h1 { margin: 0; font-size: 20px; font-weight: 500; }
+    nav { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 20px; }
+    button, input { font: inherit; color: inherit; }
+    nav button, .send, .ghost { min-height: 44px; border-radius: 999px; border: 1px solid var(--border); background: transparent; padding: 0 14px; }
+    nav button[aria-selected="true"], .send { background: var(--primary); color: var(--ink); border-color: transparent; }
+    main { padding: 0 20px 32px; max-width: 920px; }
+    section { display: none; }
+    section.active { display: grid; gap: 12px; }
+    article { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px; }
+    h2 { margin: 0 0 8px; font-size: 18px; font-weight: 500; }
+    p { margin: 0; color: var(--muted); }
+    .log { display: grid; gap: 8px; min-height: 180px; }
+    .bubble { border-radius: 12px; padding: 10px 12px; background: var(--bg); }
+    .bubble.user { border: 1px solid var(--border); }
+    form { display: flex; gap: 8px; margin-top: 12px; }
+    input { flex: 1; min-height: 44px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); padding: 0 12px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .bar { height: 8px; border-radius: 99px; background: var(--bg); overflow: hidden; margin-top: 8px; }
+    .bar span { display: block; height: 100%; background: var(--primary); }
+    .err { color: var(--danger); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Nodo</h1>
+    <p id="net">This machine</p>
+  </header>
+  <nav>
+    <button type="button" data-tab="home" aria-selected="true">Home</button>
+    <button type="button" data-tab="llms">LLMs</button>
+    <button type="button" data-tab="community">Community</button>
+    <button type="button" data-tab="radio">Radio</button>
+    <button type="button" data-tab="maps">Maps</button>
+    <button type="button" data-tab="settings">Settings</button>
+  </nav>
+  <main>
+    <section id="home" class="active">
+      <article>
+        <h2>Dashboard</h2>
+        <p>The console is this page, on port 80. The model is not a separate site. It answers inside LLMs.</p>
+      </article>
+      <article>
+        <h2>Disk</h2>
+        <p id="home-disk">Checking the disk…</p>
+      </article>
+    </section>
+    <section id="llms">
+      <article>
+        <h2>Chat</h2>
+        <p>A normal conversation. Replies come from the model on this machine. Health and water answers are not a clinician.</p>
+        <div id="log" class="log"></div>
+        <form id="chat">
+          <input id="prompt" name="prompt" autocomplete="off" placeholder="Ask something" aria-label="Message">
+          <button class="send" type="submit">Send</button>
+        </form>
+        <div class="row">
+          <button class="ghost" id="keep" type="button">Keep this chat</button>
+          <button class="ghost" id="drop" type="button">Discard</button>
+        </div>
+        <p id="chat-note"></p>
+      </article>
+    </section>
+    <section id="community">
+      <article>
+        <h2>Community</h2>
+        <p>Bitchat needs the phone app. Meshtastic needs a LoRa radio on this computer. If it is not plugged in, there is no mesh.</p>
+      </article>
+    </section>
+    <section id="radio">
+      <article>
+        <h2>Radio</h2>
+        <p>FM needs a USB RTL-SDR. None is assumed. This tab stays quiet until that stick is plugged in.</p>
+      </article>
+    </section>
+    <section id="maps">
+      <article>
+        <h2>Offline map</h2>
+        <p>The map file, if you saved one, is on disk at /var/lib/nodo/maps/region.pmtiles. OpenStreetMap contributors.</p>
+      </article>
+      <article>
+        <h2>Meshtastic nodes</h2>
+        <p id="nodes">No radio report yet.</p>
+      </article>
+    </section>
+    <section id="settings">
+      <article>
+        <h2>Chat archive</h2>
+        <p id="disk-label">Checking free space…</p>
+        <div class="bar" aria-hidden="true"><span id="disk-bar" style="width:0"></span></div>
+        <p>Ephemeral chats are not written to disk. Kept chats go to /var/lib/nodo/chats.</p>
+      </article>
+      <article>
+        <h2>Fullscreen</h2>
+        <p>At boot, if a screen is connected and fullscreen was left on, Chromium opens this page. The page itself still starts with no screen, on port 80.</p>
+      </article>
+    </section>
+  </main>
+  <script>
+    const tabs = document.querySelectorAll("nav button");
+    tabs.forEach((button) => {
+      button.addEventListener("click", () => {
+        tabs.forEach((item) => item.setAttribute("aria-selected", item === button ? "true" : "false"));
+        document.querySelectorAll("main section").forEach((section) => {
+          section.classList.toggle("active", section.id === button.dataset.tab);
+        });
+      });
+    });
+
+    const messages = [];
+    const log = document.getElementById("log");
+    const note = document.getElementById("chat-note");
+
+    function addBubble(role, text) {
+      const item = document.createElement("div");
+      item.className = "bubble" + (role === "user" ? " user" : "");
+      item.textContent = text;
+      log.appendChild(item);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    document.getElementById("chat").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = document.getElementById("prompt");
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = "";
+      messages.push({ role: "user", content: text });
+      addBubble("user", text);
+      note.textContent = "Waiting for the model on this machine…";
+      note.className = "";
+      try {
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages })
+        });
+        const payload = await response.json();
+        const reply = payload.choices && payload.choices[0] && payload.choices[0].message && payload.choices[0].message.content;
+        if (!response.ok || !reply) {
+          note.textContent = payload.error || "The model did not answer.";
+          note.className = "err";
+          messages.pop();
+          return;
+        }
+        messages.push({ role: "assistant", content: reply });
+        addBubble("assistant", reply);
+        note.textContent = "Not saved. Close the tab and this chat is gone.";
+      } catch (error) {
+        note.textContent = "The page could not reach the model.";
+        note.className = "err";
+        messages.pop();
       }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background: var(--bg);
-        color: var(--fg);
-        font: 16px/1.45 "IBM Plex Sans", "Segoe UI", sans-serif;
-        padding: 24px;
+    });
+
+    document.getElementById("drop").addEventListener("click", () => {
+      messages.length = 0;
+      log.replaceChildren();
+      note.textContent = "Discarded. Nothing was written to disk.";
+    });
+
+    document.getElementById("keep").addEventListener("click", async () => {
+      if (messages.length === 0) {
+        note.textContent = "There is nothing to keep.";
+        return;
       }
-      main {
-        width: min(100%, 28rem);
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 16px;
-        padding: 24px;
+      const response = await fetch("/api/archive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "chat", messages })
+      });
+      const payload = await response.json();
+      note.textContent = response.ok ? "Saved on disk as " + payload.saved : "Could not save.";
+      loadDisk();
+    });
+
+    function formatBytes(bytes) {
+      if (!Number.isFinite(bytes)) return "Not reported";
+      const units = ["B", "KB", "MB", "GB", "TB"];
+      let value = bytes;
+      let unit = 0;
+      while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+      return (value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)) + " " + units[unit];
+    }
+
+    async function loadDisk() {
+      try {
+        const payload = await (await fetch("/api/disk")).json();
+        const used = Math.max(0, payload.total - payload.free);
+        const pct = payload.total > 0 ? Math.min(100, Math.round(used / payload.total * 100)) : 0;
+        const line = formatBytes(payload.free) + " free on disk. Saved chats use " + formatBytes(payload.chats) + ".";
+        document.getElementById("disk-label").textContent = line;
+        document.getElementById("home-disk").textContent = line;
+        document.getElementById("disk-bar").style.width = pct + "%";
+      } catch (error) {
+        document.getElementById("disk-label").textContent = "This machine did not report free disk space.";
       }
-      p.mark {
-        margin: 0;
-        color: var(--primary);
-        font-family: "IBM Plex Mono", ui-monospace, monospace;
-        letter-spacing: 0.22em;
-        font-size: 12px;
+    }
+
+    async function loadNodes() {
+      try {
+        const payload = await (await fetch("/api/nodes")).json();
+        const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
+        if (!payload.radio) {
+          document.getElementById("nodes").textContent = payload.note || "No radio is connected.";
+          return;
+        }
+        if (nodes.length === 0) {
+          document.getElementById("nodes").textContent = "Radio " + payload.radio + " is connected. No nodes heard.";
+          return;
+        }
+        document.getElementById("nodes").textContent = nodes.map((node) => {
+          const where = typeof node.lat === "number" ? " at " + node.lat + ", " + node.lon : " (no position)";
+          return node.name + where;
+        }).join(" · ");
+      } catch (error) {
+        document.getElementById("nodes").textContent = "No radio report yet.";
       }
-      h1 { margin: 12px 0 0; font-size: 1.5rem; font-weight: 500; }
-      p { color: var(--muted); }
-      code {
-        color: var(--fg);
-        font-family: "IBM Plex Mono", ui-monospace, monospace;
-      }
-    </style>
-  </head>
-  <body>
-    <main>
-      <p class="mark">NODO</p>
-      <h1>The Wi-Fi is up</h1>
-      <p>This machine is at <code>http://10.41.0.1</code>. The network name is Nodo. Internet is not required to open this page.</p>
-      <p>The console is not on this disk yet. There is no model, no radio receiver, and no neighbor list here.</p>
-    </main>
-  </body>
+    }
+
+    loadDisk();
+    loadNodes();
+  </script>
+</body>
 </html>
