@@ -120,7 +120,7 @@ lb config \
   --apt-recommends true \
   --system live
 
-mkdir -p config/package-lists config/includes.chroot/usr/local/sbin \
+mkdir -p config/package-lists config/apt config/includes.chroot/usr/local/sbin \
   config/includes.chroot/etc/nodo \
   config/includes.chroot/etc/nginx/sites-available \
   config/includes.chroot/etc/systemd/system/multi-user.target.wants \
@@ -139,6 +139,18 @@ curl
 ca-certificates
 EOF
 
+# VMware NAT and some mirrors return a stale index with the same size
+# and a different hash. Apt then stops. These options make it refetch.
+cat > config/apt/apt.conf <<'EOF'
+Acquire::By-Hash "no";
+Acquire::Retries "5";
+Acquire::http::Pipeline-Depth "0";
+Acquire::https::Pipeline-Depth "0";
+Acquire::http::No-Cache "true";
+Acquire::https::No-Cache "true";
+Acquire::BrokenProxy "true";
+EOF
+
 cp -a "${script_dir}/www/." config/includes.chroot/usr/share/nodo/www/
 cp -a "${script_dir}/www/." config/includes.chroot/var/lib/nodo/www/
 cp "${script_dir}/live/live.env" config/includes.chroot/etc/nodo/live.env
@@ -150,7 +162,10 @@ ln -sfn /etc/systemd/system/nodo-live.service \
 ln -sfn /dev/null config/includes.chroot/etc/systemd/system/hostapd.service
 ln -sfn /dev/null config/includes.chroot/etc/systemd/system/dnsmasq.service
 
-lb build
+if ! lb build; then
+  printf 'build-iso: first pass failed while downloading Debian. Trying once more.\n'
+  lb build
+fi
 
 iso="$(find "$work" -maxdepth 1 -type f -name '*.hybrid.iso' -print -quit)"
 [[ -n "$iso" ]] || die "live-build finished but no hybrid ISO was found in ${work}"
