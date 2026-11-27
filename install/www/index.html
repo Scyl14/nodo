@@ -131,6 +131,7 @@
       if (!inside) return shell(gateBody(neighbor));
       shell(page());
       if (state.tab === "maps") initMap();
+      if (state.tab === "library" && !state.libOpen && state.libHits == null && !state.libLoading) loadLibrary();
     }
 
     function gate(title, lede, body) {
@@ -139,8 +140,8 @@
     }
     function shell(body) {
       const pending = state.people.filter((person) => person.status === "pending").length;
-      const tabs = ["home", "llms", "community", "radio", "maps", "settings"].filter((id) => state.view === "console" || id !== "settings");
-      const labels = { home: "Home", llms: "LLMs", community: "Community", radio: "Radio", maps: "Maps", settings: "Settings" };
+      const tabs = ["home", "llms", "library", "community", "radio", "maps", "settings"].filter((id) => state.view === "console" || id !== "settings");
+      const labels = { home: "Home", llms: "LLMs", library: "Library", community: "Community", radio: "Radio", maps: "Maps", settings: "Settings" };
       app.innerHTML = `
         <header>
           <div><p class="brand">NODO</p><p class="sub">${esc(location.host)} · local only · internet not required</p></div>
@@ -176,6 +177,7 @@
       const tab = state.tab === "settings" && state.view !== "console" ? "home" : state.tab;
       if (tab === "home") return home();
       if (tab === "llms") return llms();
+      if (tab === "library") return library();
       if (tab === "community") return community();
       if (tab === "radio") return radio();
       if (tab === "maps") return maps();
@@ -193,18 +195,25 @@
         ${stat("Waiting", String(pending), pending ? "Someone asked to use this node" : "No requests")}
       </div>
       ${card("Board", "Short notes for people on this node. Not a mailbox.", `<form data-action="post"><div class="row"><input name="note" placeholder="Write a short note" aria-label="Note"><button class="primary" type="submit">Post</button></div></form><ul>${notes}</ul>`)}
-      ${card("What is running", `${esc(model.name)}. ${esc(model.detail)} LoRa, FM, and GPS appear here only when the hardware is plugged in.`, `<p>The library has ${ARTICLES.length} short local notes. Search them under LLMs. A model reply is not invented here.</p>`)}`;
+      ${card("What is running", `${esc(model.name)}. ${esc(model.detail)} LoRa, FM, and GPS appear here only when the hardware is plugged in.`, `<p>Imported texts are listed under Library. The model answers under LLMs and does not invent a page it did not open.</p>`)}`;
     }
     function stat(label, value, note) {
       return `<article class="card"><p>${label}</p><p class="mono">${esc(value)}</p><p>${esc(note)}</p></article>`;
     }
     function llms() {
       const model = tier(state.ramGb);
-      const terms = (state.query || "").toLowerCase().split(/\s+/).filter((term) => term.length > 2);
-      const hits = terms.length ? ARTICLES.filter((article) => terms.some((term) => `${article.title} ${article.topic} ${article.body}`.toLowerCase().includes(term))) : ARTICLES;
       const bubbles = state.messages.map((message) => `<div class="bubble"><p class="mono">${message.role === "user" ? "You" : "Nodo"}</p><p style="color:var(--fg)">${esc(message.content)}</p></div>`).join("") || `<p>No messages. A chat stays in this tab until you keep it.</p>`;
-      return `${card("Chat", "The conversation is this page. The model stays on this machine. A reply about health or water is not a clinician.", `<p class="mono">${esc(model.name)}</p><div id="log">${bubbles}</div><form data-action="chat"><div class="row"><input name="prompt" placeholder="Ask something" aria-label="Message" value="${esc(state.draft || "")}"><button class="primary" type="submit">Send</button></div></form><p class="${state.chatError ? "err" : ""}" id="chat-note">${esc(state.chatNote || "")}</p><div class="row"><button class="ghost" type="button" data-action="keep">Keep this chat</button><button class="ghost" type="button" data-action="drop">Discard</button></div>`)}
-      ${card("Library", "These notes live in the page. They are an aid, never a substitute for a clinician or a trained technician.", `<form data-action="search"><input name="q" placeholder="Search water, bleeding, power, radio" aria-label="Search the library" value="${esc(state.query || "")}"></form><ul>${hits.map((article) => `<li class="bubble"><p class="mono">${esc(article.topic)}</p><h2>${esc(article.title)}</h2><p>${esc(article.body)}</p></li>`).join("") || `<li>Nothing in the local library matches that.</li>`}</ul>`)}`;
+      return card("Chat", "The conversation is this page. The model stays on this machine. A reply about health or water is not a clinician.", `<p class="mono">${esc(model.name)}</p><div id="log">${bubbles}</div><form data-action="chat"><div class="row"><input name="prompt" placeholder="Ask something" aria-label="Message" value="${esc(state.draft || "")}"><button class="primary" type="submit">Send</button></div></form><p class="${state.chatError ? "err" : ""}" id="chat-note">${esc(state.chatNote || "")}</p><div class="row"><button class="ghost" type="button" data-action="keep">Keep this chat</button><button class="ghost" type="button" data-action="drop">Discard</button></div>`);
+    }
+    function library() {
+      if (state.libOpen) {
+        const doc = state.libDoc;
+        const body = doc ? `<p class="mono">${esc(doc.source || "")}</p><div class="bubble" style="white-space:pre-wrap;color:var(--fg)">${esc(doc.text || doc.error || "")}</div>` : `<p>Opening…</p>`;
+        return card(doc && doc.title ? esc(doc.title) : "Reading", "Close this to return to the list.", `<div class="row"><button class="ghost" type="button" data-action="lib-back">Back to the list</button></div>${body}`);
+      }
+      const hits = state.libHits || [];
+      const list = hits.map((hit) => `<li class="bubble"><button type="button" data-read="${esc(hit.id)}" style="width:100%;text-align:left;background:transparent;border:0;color:inherit"><span class="mono">${esc(hit.source || "")}</span><br><strong>${esc(hit.title || "Untitled")}</strong></button></li>`).join("");
+      return card("Library", "Every imported text on this machine. Search, then open one to read it.", `<form data-action="lib"><div class="row"><input name="q" value="${esc(state.libQuery || "")}" placeholder="Search titles and text" aria-label="Search the library"><button class="primary" type="submit">Search</button></div></form><p>${esc(state.libSummary || "Looking on disk…")}</p><ul>${list || "<li>Nothing matched.</li>"}</ul>${state.libMore ? `<div class="row"><button class="ghost" type="button" data-action="lib-more">More</button></div>` : ""}`);
     }
     function community() {
       const nodes = state.nodes;
@@ -315,7 +324,10 @@
       document.querySelectorAll("[data-action='keep']").forEach((button) => button.addEventListener("click", keepChat));
       document.querySelectorAll("[data-action='drop']").forEach((button) => button.addEventListener("click", () => { state.messages = []; state.chatNote = "Discarded. Nothing was written to disk."; state.chatError = false; render(); }));
       document.querySelectorAll("[data-action='lock']").forEach((button) => button.addEventListener("click", () => { state.unlocked = false; render(); }));
+      document.querySelectorAll("[data-action='lib-back']").forEach((button) => button.addEventListener("click", () => { state.libOpen = false; render(); }));
       document.querySelectorAll("[data-action='kiosk']").forEach((button) => button.addEventListener("click", () => { state.fullscreenBoot = !state.fullscreenBoot; render(); }));
+      document.querySelectorAll("[data-action='lib-more']").forEach((button) => button.addEventListener("click", () => { state.libOffset = (state.libOffset || 0) + 40; loadLibrary(); }));
+      document.querySelectorAll("[data-read]").forEach((button) => button.addEventListener("click", () => openText(button.dataset.read)));
       document.querySelectorAll("[data-ram]").forEach((button) => button.addEventListener("click", () => { state.ramGb = Number(button.dataset.ram); render(); }));
       document.querySelectorAll("[data-decide]").forEach((button) => button.addEventListener("click", () => {
         state.people = state.people.map((person) => person.id === button.dataset.decide ? { ...person, status: button.dataset.status } : person);
@@ -365,9 +377,12 @@
         state.posts = [{ id: uid(), author, body: text, at: now() }, ...state.posts].slice(0, 40);
         render();
       }
-      if (action === "search") {
-        state.query = String(data.get("q") || "");
-        render();
+      if (action === "lib") {
+        state.libQuery = String(data.get("q") || "");
+        state.libOffset = 0;
+        state.libOpen = false;
+        state.libHits = null;
+        loadLibrary();
       }
       if (action === "chat") sendChat(String(data.get("prompt") || ""));
       if (action === "preset") {
@@ -384,6 +399,36 @@
         state.clockSetByHand = true;
         render();
       }
+    }
+
+    async function loadLibrary() {
+      state.libLoading = true;
+      const params = new URLSearchParams({ q: state.libQuery || "", offset: String(state.libOffset || 0) });
+      try {
+        const payload = await (await fetch("/api/library?" + params)).json();
+        const incoming = Array.isArray(payload.hits) ? payload.hits : [];
+        state.libHits = state.libOffset ? [...(state.libHits || []), ...incoming] : incoming;
+        state.libSummary = payload.summary || "";
+        state.libMore = Boolean(payload.more);
+      } catch (error) {
+        state.libHits = state.libHits || [];
+        state.libSummary = "The library list could not be read.";
+        state.libMore = false;
+      }
+      state.libLoading = false;
+      if (state.tab === "library") render();
+    }
+
+    async function openText(ident) {
+      state.libOpen = true;
+      state.libDoc = null;
+      render();
+      try {
+        state.libDoc = await (await fetch("/api/library/read?id=" + encodeURIComponent(ident))).json();
+      } catch (error) {
+        state.libDoc = { title: "Reading", error: "That text could not be opened." };
+      }
+      if (state.tab === "library") render();
     }
 
     async function sendChat(text) {
