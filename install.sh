@@ -7,6 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 YES=0
 CHECK=0
+UNINSTALL=0
 
 die() { printf 'nodo-install: %s\n' "$1" >&2; exit 1; }
 say() { printf '%s\n' "$1"; }
@@ -17,6 +18,9 @@ Usage: sudo ./install.sh [--yes] [--check]
 
   --yes     Take the recommended model, library, and skip the map and Wi-Fi.
             Still prints every choice before it downloads.
+  --uninstall
+            Stop Nodo and delete its files, so the next run starts clean.
+            Debian packages such as nginx stay installed.
   --check   Show what this machine would be offered. Change nothing.
   --help
 
@@ -28,13 +32,56 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --yes) YES=1; shift ;;
     --check) CHECK=1; shift ;;
+    --uninstall) UNINSTALL=1; shift ;;
     --help|-h) usage; exit 0 ;;
     *) die "Unknown argument: $1" ;;
   esac
 done
 
-if [[ ! -t 0 && "$YES" -ne 1 && "$CHECK" -ne 1 ]]; then
+if [[ ! -t 0 && "$YES" -ne 1 && "$CHECK" -ne 1 && "$UNINSTALL" -ne 1 ]]; then
   die "No terminal to ask questions. Pass --yes or run it in a terminal."
+fi
+
+uninstall_nodo() {
+  say "This removes Nodo data and services. It does not remove Debian itself."
+  say "Deleted: /var/lib/nodo /opt/nodo /etc/nodo and the Nodo systemd units."
+  if [[ "$CHECK" -eq 1 ]]; then
+    say "Check only. Nothing was changed."
+    exit 0
+  fi
+  [[ "$(id -u)" -eq 0 ]] || die "Run as root: sudo ./install.sh --uninstall"
+  local unit
+  for unit in nodo-kiosk nodo-wifi nodo-llm nodo-portal nodo-mesh.timer nodo-mesh nodo-hostapd nodo-addr nodo-dnsmasq; do
+    systemctl disable --now "${unit}.service" >/dev/null 2>&1 || true
+    systemctl disable --now "${unit}" >/dev/null 2>&1 || true
+  done
+  rm -f \
+    /etc/systemd/system/nodo-kiosk.service \
+    /etc/systemd/system/nodo-wifi.service \
+    /etc/systemd/system/nodo-llm.service \
+    /etc/systemd/system/nodo-portal.service \
+    /etc/systemd/system/nodo-mesh.service \
+    /etc/systemd/system/nodo-mesh.timer \
+    /etc/systemd/system/nodo-hostapd.service \
+    /etc/systemd/system/nodo-addr.service \
+    /etc/systemd/system/nodo-dnsmasq.service \
+    /etc/nginx/sites-enabled/nodo \
+    /etc/nginx/sites-available/nodo \
+    /usr/local/sbin/nodo-portal.py \
+    /usr/local/sbin/nodo-mesh-nodes \
+    /usr/local/bin/pmtiles
+  rm -rf /var/lib/nodo /opt/nodo /etc/nodo /run/nodo
+  systemctl daemon-reload
+  if command -v nginx >/dev/null 2>&1; then
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1 || true
+  fi
+  say "Nodo is removed. Run sudo ./install.sh for a fresh install."
+  say "The owner password lives in the browser. Clear the site data for this address, or the old lock screen remains."
+  exit 0
+}
+
+if [[ "$UNINSTALL" -eq 1 ]]; then
+  uninstall_nodo
 fi
 
 debian_name="unknown"
