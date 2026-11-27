@@ -4,233 +4,380 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Nodo</title>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
   <style>
-    :root { color-scheme: dark; --bg:#12140f; --surface:#1c1f17; --fg:#e7e4d4; --muted:#9a967f; --primary:#d6a23a; --ink:#1a1408; --border:#34382c; --danger:#c45c4a; }
+    :root { color-scheme: dark; --bg:#12140f; --surface:#1c1f17; --surface-2:#24281d; --fg:#e7e4d4; --muted:#9a967f; --primary:#d6a23a; --ink:#1a1408; --border:#34382c; --danger:#c45c4a; --danger-fg:#1a0d0b; }
     * { box-sizing: border-box; }
-    body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.45 "IBM Plex Sans", sans-serif; }
-    header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border); }
-    h1 { margin: 0; font-size: 20px; font-weight: 500; }
-    nav { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 20px; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.45 "Segoe UI", sans-serif; }
     button, input { font: inherit; color: inherit; }
-    nav button, .send, .ghost { min-height: 44px; border-radius: 999px; border: 1px solid var(--border); background: transparent; padding: 0 14px; }
-    nav button[aria-selected="true"], .send { background: var(--primary); color: var(--ink); border-color: transparent; }
-    main { padding: 0 20px 32px; max-width: 920px; }
-    section { display: none; }
-    section.active { display: grid; gap: 12px; }
-    article { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px; }
-    h2 { margin: 0 0 8px; font-size: 18px; font-weight: 500; }
-    p { margin: 0; color: var(--muted); }
-    .log { display: grid; gap: 8px; min-height: 180px; }
-    .bubble { border-radius: 12px; padding: 10px 12px; background: var(--bg); }
-    .bubble.user { border: 1px solid var(--border); }
-    form { display: flex; gap: 8px; margin-top: 12px; }
-    input { flex: 1; min-height: 44px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); padding: 0 12px; }
-    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    button { cursor: pointer; }
+    button:disabled { opacity: .4; cursor: default; }
+    header { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--surface); }
+    .brand { font-family: ui-monospace, monospace; letter-spacing: .22em; color: var(--primary); font-size: 12px; margin: 0; }
+    .sub { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+    nav { display: flex; gap: 6px; overflow-x: auto; padding: 8px 12px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); }
+    nav button { min-height: 44px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); padding: 0 14px; }
+    nav button[aria-selected="true"] { background: var(--primary); color: var(--ink); }
+    .badge { margin-left: 6px; background: var(--danger); color: var(--danger-fg); border-radius: 99px; padding: 0 7px; font-size: 12px; }
+    main { max-width: 960px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 12px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px; }
+    h1 { margin: 8px 0; font-size: 24px; font-weight: 500; }
+    h2 { margin: 0; font-size: 18px; font-weight: 500; }
+    p { margin: 8px 0 0; color: var(--muted); }
+    .gate { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .panel { width: min(28rem, 100%); }
+    label { display: block; color: var(--muted); font-size: 14px; margin-top: 12px; }
+    input { width: 100%; min-height: 44px; margin-top: 6px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); padding: 0 12px; }
+    .primary, .ghost { min-height: 44px; border-radius: 10px; padding: 0 16px; }
+    .primary { background: var(--primary); color: var(--ink); border: 0; font-weight: 500; }
+    .ghost { background: transparent; border: 1px solid var(--border); }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .stats { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+    .mono { font-family: ui-monospace, monospace; color: var(--primary); }
+    .err { color: var(--danger); }
+    .bubble { background: var(--bg); border-radius: 12px; padding: 10px 12px; margin-top: 8px; }
     .bar { height: 8px; border-radius: 99px; background: var(--bg); overflow: hidden; margin-top: 8px; }
     .bar span { display: block; height: 100%; background: var(--primary); }
-    .err { color: var(--danger); }
+    .switch { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 4px; background: var(--bg); }
+    .switch button { min-height: 40px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); padding: 0 14px; }
+    .switch button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); }
+    ul { list-style: none; margin: 8px 0 0; padding: 0; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Nodo</h1>
-    <p id="net">This machine</p>
-  </header>
-  <nav>
-    <button type="button" data-tab="home" aria-selected="true">Home</button>
-    <button type="button" data-tab="llms">LLMs</button>
-    <button type="button" data-tab="community">Community</button>
-    <button type="button" data-tab="radio">Radio</button>
-    <button type="button" data-tab="maps">Maps</button>
-    <button type="button" data-tab="settings">Settings</button>
-  </nav>
-  <main>
-    <section id="home" class="active">
-      <article>
-        <h2>Dashboard</h2>
-        <p>The console is this page, on port 80. The model is not a separate site. It answers inside LLMs.</p>
-      </article>
-      <article>
-        <h2>Disk</h2>
-        <p id="home-disk">Checking the disk…</p>
-      </article>
-    </section>
-    <section id="llms">
-      <article>
-        <h2>Chat</h2>
-        <p>A normal conversation. Replies come from the model on this machine. Health and water answers are not a clinician.</p>
-        <div id="log" class="log"></div>
-        <form id="chat">
-          <input id="prompt" name="prompt" autocomplete="off" placeholder="Ask something" aria-label="Message">
-          <button class="send" type="submit">Send</button>
-        </form>
-        <div class="row">
-          <button class="ghost" id="keep" type="button">Keep this chat</button>
-          <button class="ghost" id="drop" type="button">Discard</button>
-        </div>
-        <p id="chat-note"></p>
-      </article>
-    </section>
-    <section id="community">
-      <article>
-        <h2>Community</h2>
-        <p>Bitchat needs the phone app. Meshtastic needs a LoRa radio on this computer. If it is not plugged in, there is no mesh.</p>
-      </article>
-    </section>
-    <section id="radio">
-      <article>
-        <h2>Radio</h2>
-        <p>FM needs a USB RTL-SDR. None is assumed. This tab stays quiet until that stick is plugged in.</p>
-      </article>
-    </section>
-    <section id="maps">
-      <article>
-        <h2>Offline map</h2>
-        <p>The map file, if you saved one, is on disk at /var/lib/nodo/maps/region.pmtiles. OpenStreetMap contributors.</p>
-      </article>
-      <article>
-        <h2>Meshtastic nodes</h2>
-        <p id="nodes">No radio report yet.</p>
-      </article>
-    </section>
-    <section id="settings">
-      <article>
-        <h2>Chat archive</h2>
-        <p id="disk-label">Checking free space…</p>
-        <div class="bar" aria-hidden="true"><span id="disk-bar" style="width:0"></span></div>
-        <p>Ephemeral chats are not written to disk. Kept chats go to /var/lib/nodo/chats.</p>
-      </article>
-      <article>
-        <h2>Fullscreen</h2>
-        <p>At boot, if a screen is connected and fullscreen was left on, Chromium opens this page. The page itself still starts with no screen, on port 80.</p>
-      </article>
-    </section>
-  </main>
+  <div id="app"></div>
   <script>
-    const tabs = document.querySelectorAll("nav button");
-    tabs.forEach((button) => {
-      button.addEventListener("click", () => {
-        tabs.forEach((item) => item.setAttribute("aria-selected", item === button ? "true" : "false"));
-        document.querySelectorAll("main section").forEach((section) => {
-          section.classList.toggle("active", section.id === button.dataset.tab);
-        });
-      });
+    const ARTICLES = [
+      { id: "water", topic: "Water", title: "Drinking water when the tap stops", body: "Boil clear water for one minute, then let it cool before drinking. If the water is cloudy, let it settle and pour off the clear part first. Store cooled water in clean, covered containers. A local note is not a treatment plant: when in doubt, do not drink it." },
+      { id: "aid", topic: "First aid", title: "Bleeding: first steps", body: "Press a clean cloth firmly on the wound and keep pressing. If blood soaks through, add another cloth. Do not remove the first one. Raise the injured part if you can do that without making the pain much worse. This is an aid, not a clinician. Get a person with medical training as soon as you can." },
+      { id: "power", topic: "Power", title: "Keep the node running", body: "The node is a laptop. Dim the screen, close unused work, and prefer the battery you already charged. A power bank helps. The web console, the small model, and the saved library stay available with the internet unplugged. New models and new archives do not." },
+      { id: "radio", topic: "Radio", title: "What each radio is for", body: "The network card this machine already has carries this console. Meshtastic needs a LoRa board for each person and only carries short text. Bitchat is a phone app over Bluetooth, with no extra hardware and a short range. FM listening needs a separate USB receiver. None of these is a replacement for the public telephone network." }
+    ];
+
+    const empty = () => ({
+      passwordHash: null, recoveryCode: null, recoveryAcknowledged: false, unlocked: false,
+      view: "console", neighborId: crypto.randomUUID(), people: [], posts: [], presets: [],
+      clockOffsetMs: 0, clockSetByHand: false, ramGb: 8, fullscreenBoot: true, tab: "home",
+      messages: []
     });
 
-    const messages = [];
-    const log = document.getElementById("log");
-    const note = document.getElementById("chat-note");
-
-    function addBubble(role, text) {
-      const item = document.createElement("div");
-      item.className = "bubble" + (role === "user" ? " user" : "");
-      item.textContent = text;
-      log.appendChild(item);
-      log.scrollTop = log.scrollHeight;
-    }
-
-    document.getElementById("chat").addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const input = document.getElementById("prompt");
-      const text = input.value.trim();
-      if (!text) return;
-      input.value = "";
-      messages.push({ role: "user", content: text });
-      addBubble("user", text);
-      note.textContent = "Waiting for the model on this machine…";
-      note.className = "";
+    let state = load();
+    function load() {
       try {
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages })
-        });
-        const payload = await response.json();
-        const reply = payload.choices && payload.choices[0] && payload.choices[0].message && payload.choices[0].message.content;
-        if (!response.ok || !reply) {
-          note.textContent = payload.error || "The model did not answer.";
-          note.className = "err";
-          messages.pop();
-          return;
-        }
-        messages.push({ role: "assistant", content: reply });
-        addBubble("assistant", reply);
-        note.textContent = "Not saved. Close the tab and this chat is gone.";
+        const saved = JSON.parse(localStorage.getItem("nodo-console") || "null");
+        return saved && typeof saved === "object" ? { ...empty(), ...saved, messages: [] } : empty();
       } catch (error) {
-        note.textContent = "The page could not reach the model.";
-        note.className = "err";
-        messages.pop();
+        return empty();
       }
-    });
-
-    document.getElementById("drop").addEventListener("click", () => {
-      messages.length = 0;
-      log.replaceChildren();
-      note.textContent = "Discarded. Nothing was written to disk.";
-    });
-
-    document.getElementById("keep").addEventListener("click", async () => {
-      if (messages.length === 0) {
-        note.textContent = "There is nothing to keep.";
-        return;
+    }
+    function save() {
+      const { messages, ...rest } = state;
+      localStorage.setItem("nodo-console", JSON.stringify(rest));
+    }
+    function hashSecret(value) {
+      let hash = 2166136261;
+      for (let index = 0; index < value.length; index += 1) {
+        hash ^= value.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
       }
-      const response = await fetch("/api/archive", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "chat", messages })
-      });
-      const payload = await response.json();
-      note.textContent = response.ok ? "Saved on disk as " + payload.saved : "Could not save.";
-      loadDisk();
-    });
-
+      return (hash >>> 0).toString(16);
+    }
+    function codeChunk() {
+      const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
+      return Array.from({ length: 4 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+    }
+    function tier(ram) {
+      if (ram < 8) return { name: "Small, 1–3B", detail: "Ships with the node. It runs with the internet unplugged." };
+      if (ram < 16) return { name: "Medium, 7–8B Q4", detail: "Offered when a network is up. The small model stays installed." };
+      return { name: "Large, 14B class", detail: "Only if memory and disk allow. The small model stays installed." };
+    }
+    function when(ms) {
+      return new Date(ms).toLocaleString();
+    }
+    function now() { return Date.now() + state.clockOffsetMs; }
+    function esc(value) {
+      return String(value).replace(/[&<>"']/g, (ch) => ({ "&": "&", "<": "<", ">": ">", '"': """, "'": "&#39;" }[ch]));
+    }
     function formatBytes(bytes) {
       if (!Number.isFinite(bytes)) return "Not reported";
       const units = ["B", "KB", "MB", "GB", "TB"];
-      let value = bytes;
-      let unit = 0;
+      let value = bytes, unit = 0;
       while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
       return (value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)) + " " + units[unit];
     }
 
-    async function loadDisk() {
-      try {
-        const payload = await (await fetch("/api/disk")).json();
-        const used = Math.max(0, payload.total - payload.free);
-        const pct = payload.total > 0 ? Math.min(100, Math.round(used / payload.total * 100)) : 0;
-        const line = formatBytes(payload.free) + " free on disk. Saved chats use " + formatBytes(payload.chats) + ".";
-        document.getElementById("disk-label").textContent = line;
-        document.getElementById("home-disk").textContent = line;
-        document.getElementById("disk-bar").style.width = pct + "%";
-      } catch (error) {
-        document.getElementById("disk-label").textContent = "This machine did not report free disk space.";
+    const app = document.getElementById("app");
+    function render() {
+      save();
+      if (!state.passwordHash) return gate("Set the owner password", "Type this on the machine itself. It is not asked over Wi-Fi.", setupForm());
+      if (!state.recoveryAcknowledged) return gate("Write down the recovery code", "There is no email reset. If you lose the password and this code, the console stays locked.", recoveryBlock());
+      if (state.view === "console" && !state.unlocked) return gate("Console locked", "Neighbors stay on the request page. This screen is for the owner.", lockForm());
+      const neighbor = state.people.find((person) => person.id === state.neighborId);
+      const inside = state.view === "console" || neighbor?.status === "approved";
+      if (!inside) return shell(gateBody(neighbor));
+      shell(page());
+    }
+
+    function gate(title, lede, body) {
+      app.innerHTML = `<div class="gate"><section class="card panel"><p class="brand">NODO</p><h1>${title}</h1><p>${lede}</p>${body}</section></div>`;
+      bind();
+    }
+    function shell(body) {
+      const pending = state.people.filter((person) => person.status === "pending").length;
+      const tabs = ["home", "llms", "community", "radio", "maps", "settings"].filter((id) => state.view === "console" || id !== "settings");
+      const labels = { home: "Home", llms: "LLMs", community: "Community", radio: "Radio", maps: "Maps", settings: "Settings" };
+      app.innerHTML = `
+        <header>
+          <div><p class="brand">NODO</p><p class="sub">${esc(location.host)} · local only · internet not required</p></div>
+          <div class="switch" role="group" aria-label="Viewing as">
+            <button type="button" data-view="console" aria-pressed="${state.view === "console"}">Console</button>
+            <button type="button" data-view="neighbor" aria-pressed="${state.view === "neighbor"}">Neighbor</button>
+          </div>
+        </header>
+        <nav>${tabs.map((id) => `<button type="button" data-tab="${id}" aria-selected="${state.tab === id}">${labels[id]}${id === "settings" && pending ? `<span class="badge">${pending}</span>` : ""}</button>`).join("")}</nav>
+        <main>${body}</main>`;
+      bind();
+    }
+    function card(title, text, extra) {
+      return `<article class="card"><h2>${title}</h2>${text ? `<p>${text}</p>` : ""}${extra || ""}</article>`;
+    }
+
+    function setupForm() {
+      return `<form data-action="setup"><label>Password<input name="password" type="password" autocomplete="new-password" required></label><label>Repeat password<input name="again" type="password" autocomplete="new-password" required></label><p class="err" data-error></p><div class="row"><button class="primary" type="submit">Continue</button></div></form>`;
+    }
+    function recoveryBlock() {
+      return `<p class="mono" style="text-align:center;font-size:18px">${esc(state.recoveryCode)}</p><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-ack style="width:auto"> I wrote this on paper.</label><div class="row"><button class="primary" type="button" data-action="ack" disabled>Open the console</button></div>`;
+    }
+    function lockForm() {
+      return `<form data-action="unlock">${state.useCode ? `<label>Recovery code<input name="code" autocomplete="off"></label>` : `<label>Password<input name="password" type="password" autocomplete="current-password"></label>`}<p class="err" data-error></p><div class="row"><button class="primary" type="submit">Unlock</button><button class="ghost" type="button" data-action="swap-lock">${state.useCode ? "Use the password" : "Use the recovery code"}</button></div></form>`;
+    }
+    function gateBody(neighbor) {
+      if (neighbor?.status === "pending") return card("Waiting for the owner", "Your name is on the console. Nothing else on this node opens until they accept.");
+      const refused = neighbor?.status === "rejected";
+      return card(refused ? "Not accepted" : "Ask to enter", refused ? "The owner refused this device. You can ask again." : "A password for the network is not enough. The owner accepts people one by one.") + `<article class="card"><form data-action="request"><label>Your name<input name="name" placeholder="Ada, upstairs" required></label><p class="err" data-error></p><div class="row"><button class="primary" type="submit">Request access</button></div></form></article>`;
+    }
+
+    function page() {
+      const tab = state.tab === "settings" && state.view !== "console" ? "home" : state.tab;
+      if (tab === "home") return home();
+      if (tab === "llms") return llms();
+      if (tab === "community") return community();
+      if (tab === "radio") return radio();
+      if (tab === "maps") return maps();
+      return settings();
+    }
+
+    function home() {
+      const pending = state.people.filter((person) => person.status === "pending").length;
+      const model = tier(state.ramGb);
+      const notes = state.posts.map((post) => `<li class="bubble"><p>${esc(post.body)}</p><p class="mono">${esc(post.author)} · ${esc(when(post.at))}</p></li>`).join("") || `<li class="bubble">No notes yet.</li>`;
+      return `<div class="stats">
+        ${stat("Clock", when(now()), state.clockSetByHand ? "Set by hand" : "This browser clock")}
+        ${stat("Battery", state.battery || "Not reported", "Reported by the browser, if it can")}
+        ${stat("Network", location.host, "The card this machine already uses")}
+        ${stat("Waiting", String(pending), pending ? "Someone asked to use this node" : "No requests")}
+      </div>
+      ${card("Board", "Short notes for people on this node. Not a mailbox.", `<form data-action="post"><div class="row"><input name="note" placeholder="Write a short note" aria-label="Note"><button class="primary" type="submit">Post</button></div></form><ul>${notes}</ul>`)}
+      ${card("What is running", `${esc(model.name)}. ${esc(model.detail)} LoRa, FM, and GPS appear here only when the hardware is plugged in.`, `<p>The library has ${ARTICLES.length} short local notes. Search them under LLMs. A model reply is not invented here.</p>`)}`;
+    }
+    function stat(label, value, note) {
+      return `<article class="card"><p>${label}</p><p class="mono">${esc(value)}</p><p>${esc(note)}</p></article>`;
+    }
+    function llms() {
+      const model = tier(state.ramGb);
+      const terms = (state.query || "").toLowerCase().split(/\s+/).filter((term) => term.length > 2);
+      const hits = terms.length ? ARTICLES.filter((article) => terms.some((term) => `${article.title} ${article.topic} ${article.body}`.toLowerCase().includes(term))) : ARTICLES;
+      const bubbles = state.messages.map((message) => `<div class="bubble"><p class="mono">${message.role === "user" ? "You" : "Nodo"}</p><p style="color:var(--fg)">${esc(message.content)}</p></div>`).join("") || `<p>No messages. A chat stays in this tab until you keep it.</p>`;
+      return `${card("Chat", "The conversation is this page. The model stays on this machine. A reply about health or water is not a clinician.", `<p class="mono">${esc(model.name)}</p><div id="log">${bubbles}</div><form data-action="chat"><div class="row"><input name="prompt" placeholder="Ask something" aria-label="Message" value="${esc(state.draft || "")}"><button class="primary" type="submit">Send</button></div></form><p class="${state.chatError ? "err" : ""}" id="chat-note">${esc(state.chatNote || "")}</p><div class="row"><button class="ghost" type="button" data-action="keep">Keep this chat</button><button class="ghost" type="button" data-action="drop">Discard</button></div>`)}
+      ${card("Library", "These notes live in the page. They are an aid, never a substitute for a clinician or a trained technician.", `<form data-action="search"><input name="q" placeholder="Search water, bleeding, power, radio" aria-label="Search the library" value="${esc(state.query || "")}"></form><ul>${hits.map((article) => `<li class="bubble"><p class="mono">${esc(article.topic)}</p><h2>${esc(article.title)}</h2><p>${esc(article.body)}</p></li>`).join("") || `<li>Nothing in the local library matches that.</li>`}</ul>`)}`;
+    }
+    function community() {
+      const nodes = state.nodes;
+      const radio = nodes && nodes.radio ? `Radio ${nodes.radio}` : "Radio not connected.";
+      return `<div class="stats">
+        ${card("Bitchat", "Phone to phone over Bluetooth. No extra hardware. Range is short, longer only if other phones sit in between and relay.", `<p>The signed Android file is not on this machine yet. Download stays disabled until a verified file is on disk. iPhone cannot install an APK.</p>`)}
+        ${card("Meshtastic", "Longer range, text only. Each person needs a LoRa board. This computer joins the mesh only with its own LoRa radio plugged in.", `<p style="color:var(--fg)">${esc(radio)}</p><p>Meshtastic cannot carry this console. The mesh is for short messages when people are out of network range.</p>`)}
+      </div>`;
+    }
+    function radio() {
+      const list = state.presets.map((preset) => `<li class="bubble"><span>${esc(preset.name)}</span> <span class="mono">${esc(preset.mhz)} MHz</span> <button class="ghost" type="button" data-remove="${esc(preset.id)}">Remove</button></li>`).join("") || `<li>No stations saved.</li>`;
+      return `${card("FM receiver", "A normal computer has no FM chip. Listening needs a USB RTL-SDR and its antenna. Without it, this tab stays quiet.", `<p style="color:var(--fg)">Receiver absent.</p>`)}
+      ${card("GPS", "No GPS device. The clock will not set itself. Set it by hand in Settings.", `<p style="color:var(--fg)">No fix.</p>`)}
+      ${card("Stations you choose", "FM broadcast only, 87.5 to 108 MHz. This node does not scan private or service channels.", `<form data-action="preset"><div class="row"><input name="name" placeholder="Station name" aria-label="Station name"><input name="mhz" placeholder="98.5" aria-label="Frequency in megahertz" style="max-width:8rem"><button class="primary" type="submit">Save</button></div></form><p class="err" data-error></p><ul>${list}</ul>`)}`;
+    }
+    function maps() {
+      const nodes = state.nodes;
+      let line = "No radio report yet.";
+      if (nodes) {
+        if (!nodes.radio) line = nodes.note || "No radio is connected.";
+        else if (!nodes.nodes || nodes.nodes.length === 0) line = `Radio ${nodes.radio} is connected. No nodes heard.`;
+        else line = nodes.nodes.map((node) => `${node.name}${typeof node.lat === "number" ? ` at ${node.lat}, ${node.lon}` : " (no position)"}`).join(" · ");
+      }
+      return `${card("Offline map", "The installer saves one OpenStreetMap cut on the machine. The whole planet is not downloaded.", `<p>The file, when you chose an area, is /var/lib/nodo/maps/region.pmtiles. OpenStreetMap contributors, via Protomaps.</p>`)}
+      ${card("Meshtastic nodes", "Pins are nodes this radio can hear, and only if they sent a position. Nodes without a position stay in the list. Nothing is invented on the map.", `<p style="color:var(--fg)">${esc(line)}</p>`)}`;
+    }
+    function settings() {
+      const people = state.people.map((person) => `<li class="bubble"><strong>${esc(person.name)}</strong> <span class="mono">${esc(person.status)}</span><p>${esc(when(person.requestedAt))}</p><div class="row"><button class="primary" type="button" data-decide="${esc(person.id)}" data-status="approved">Accept</button><button class="ghost" type="button" data-decide="${esc(person.id)}" data-status="rejected">Refuse</button></div></li>`).join("") || `<li>No requests yet. Open Neighbor, above, to ask as someone else.</li>`;
+      const model = tier(state.ramGb);
+      const disk = state.disk;
+      const used = disk ? Math.max(0, disk.total - disk.free) : 0;
+      const pct = disk && disk.total ? Math.min(100, Math.round(used / disk.total * 100)) : 0;
+      const diskLine = disk ? `${formatBytes(disk.free)} free on disk. Saved chats use ${formatBytes(disk.chats)}.` : "Checking the disk…";
+      return `${card("People", "Accept or refuse each device. Approved phones stay recognized. You can take access away later.", `<ul>${people}</ul>`)}
+      ${card("Clock", state.clockSetByHand ? "Last change was made by hand." : "Still following this browser clock. Set it if the network time is gone.", `<p class="mono">${esc(when(now()))}</p><form data-action="clock"><div class="row"><input name="when" type="datetime-local" aria-label="New date and time"><button class="primary" type="submit">Set clock</button></div></form><p>GPS would set this when a receiver has a fix. None is connected.</p>`)}
+      ${card("Model profile", "Sample memory, so you can see which model first boot would pick. The small model is always kept.", `<div class="row">${[4, 8, 16, 32].map((gb) => `<button class="${state.ramGb === gb ? "primary" : "ghost"}" type="button" data-ram="${gb}">${gb} GB</button>`).join("")}</div><p>${esc(model.name)}. ${esc(model.detail)}</p>`)}
+      ${card("Fullscreen", "On at startup opens this page fullscreen when Debian has a graphical login. The page itself still starts on port 80 with no screen.", `<div class="row"><button class="${state.fullscreenBoot ? "primary" : "ghost"}" type="button" data-action="kiosk">${state.fullscreenBoot ? "On at startup" : "Off at startup"}</button></div>`)}
+      ${card("Chat archive", "Disk space left where saved chats are stored. This is the machine's disk, not the browser.", `<p>${esc(diskLine)}</p><div class="bar"><span style="width:${pct}%"></span></div><p>Ephemeral chats are not written to disk.</p>`)}
+      ${card("Recovery", "Keep this on paper, not in a cloud note.", `<p class="mono">${esc(state.recoveryCode)}</p><div class="row"><button class="ghost" type="button" data-action="lock">Lock the console</button></div>`)}`;
+    }
+
+    function bind() {
+      document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => { state.tab = button.dataset.tab; render(); }));
+      document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => { state.view = button.dataset.view; if (state.view === "neighbor" && state.tab === "settings") state.tab = "home"; render(); }));
+      document.querySelectorAll("form").forEach((item) => item.addEventListener("submit", onSubmit));
+      const ack = document.querySelector("[data-ack]");
+      const open = document.querySelector("[data-action='ack']");
+      if (ack && open) ack.addEventListener("change", () => { open.disabled = !ack.checked; });
+      if (open) open.addEventListener("click", () => { state.recoveryAcknowledged = true; state.unlocked = true; render(); });
+      document.querySelectorAll("[data-action='swap-lock']").forEach((button) => button.addEventListener("click", () => { state.useCode = !state.useCode; render(); }));
+      document.querySelectorAll("[data-action='keep']").forEach((button) => button.addEventListener("click", keepChat));
+      document.querySelectorAll("[data-action='drop']").forEach((button) => button.addEventListener("click", () => { state.messages = []; state.chatNote = "Discarded. Nothing was written to disk."; state.chatError = false; render(); }));
+      document.querySelectorAll("[data-action='lock']").forEach((button) => button.addEventListener("click", () => { state.unlocked = false; render(); }));
+      document.querySelectorAll("[data-action='kiosk']").forEach((button) => button.addEventListener("click", () => { state.fullscreenBoot = !state.fullscreenBoot; render(); }));
+      document.querySelectorAll("[data-ram]").forEach((button) => button.addEventListener("click", () => { state.ramGb = Number(button.dataset.ram); render(); }));
+      document.querySelectorAll("[data-decide]").forEach((button) => button.addEventListener("click", () => {
+        state.people = state.people.map((person) => person.id === button.dataset.decide ? { ...person, status: button.dataset.status } : person);
+        render();
+      }));
+      document.querySelectorAll("[data-remove]").forEach((button) => button.addEventListener("click", () => { state.presets = state.presets.filter((preset) => preset.id !== button.dataset.remove); render(); }));
+    }
+
+    function onSubmit(event) {
+      event.preventDefault();
+      const action = event.currentTarget.dataset.action;
+      const data = new FormData(event.currentTarget);
+      const error = event.currentTarget.querySelector("[data-error]");
+      if (action === "setup") {
+        const password = String(data.get("password") || "");
+        if (password.length < 8) return error.textContent = "Use at least 8 characters.";
+        if (password !== String(data.get("again") || "")) return error.textContent = "The two passwords do not match.";
+        state.passwordHash = hashSecret(password);
+        state.recoveryCode = `${codeChunk()}-${codeChunk()}-${codeChunk()}`;
+        state.recoveryAcknowledged = false;
+        state.unlocked = true;
+        render();
+      }
+      if (action === "unlock") {
+        const ok = state.useCode
+          ? state.recoveryCode && state.recoveryCode.toLowerCase() === String(data.get("code") || "").trim().toLowerCase()
+          : state.passwordHash === hashSecret(String(data.get("password") || ""));
+        if (!ok) return error.textContent = state.useCode ? "That recovery code does not match." : "Wrong password.";
+        state.unlocked = true;
+        render();
+      }
+      if (action === "request") {
+        const name = String(data.get("name") || "").trim().slice(0, 40);
+        if (!name) return error.textContent = "Write the name the owner should see.";
+        const existing = state.people.find((person) => person.id === state.neighborId);
+        if (existing?.status === "approved") return;
+        const next = { id: state.neighborId, name, status: "pending", requestedAt: now() };
+        state.people = existing ? state.people.map((person) => person.id === next.id ? next : person) : [next, ...state.people];
+        render();
+      }
+      if (action === "post") {
+        const text = String(data.get("note") || "").trim().slice(0, 240);
+        if (!text) return;
+        const person = state.people.find((entry) => entry.id === state.neighborId);
+        if (state.view === "neighbor" && person?.status !== "approved") return;
+        const author = state.view === "console" ? "Owner" : person?.name || "Neighbor";
+        state.posts = [{ id: crypto.randomUUID(), author, body: text, at: now() }, ...state.posts].slice(0, 40);
+        render();
+      }
+      if (action === "search") {
+        state.query = String(data.get("q") || "");
+        render();
+      }
+      if (action === "chat") sendChat(String(data.get("prompt") || ""));
+      if (action === "preset") {
+        const name = String(data.get("name") || "").trim();
+        const mhz = Number(String(data.get("mhz") || "").replace(",", "."));
+        if (!name || !Number.isFinite(mhz) || mhz < 87.5 || mhz > 108) return error.textContent = "Use a name and a frequency from 87.5 to 108.";
+        state.presets = [...state.presets, { id: crypto.randomUUID(), name, mhz: mhz.toFixed(1) }];
+        render();
+      }
+      if (action === "clock") {
+        const parsed = Date.parse(String(data.get("when") || ""));
+        if (!Number.isFinite(parsed)) return;
+        state.clockOffsetMs = parsed - Date.now();
+        state.clockSetByHand = true;
+        render();
       }
     }
 
-    async function loadNodes() {
+    async function sendChat(text) {
+      const content = text.trim();
+      if (!content) return;
+      state.messages = [...state.messages, { role: "user", content }];
+      state.chatNote = "Waiting for the model on this machine…";
+      state.chatError = false;
+      state.draft = "";
+      render();
       try {
-        const payload = await (await fetch("/api/nodes")).json();
-        const nodes = Array.isArray(payload.nodes) ? payload.nodes : [];
-        if (!payload.radio) {
-          document.getElementById("nodes").textContent = payload.note || "No radio is connected.";
-          return;
+        const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: state.messages }) });
+        const payload = await response.json();
+        const reply = payload.choices && payload.choices[0] && payload.choices[0].message && payload.choices[0].message.content;
+        if (!response.ok || !reply) {
+          state.messages = state.messages.slice(0, -1);
+          state.chatNote = payload.error || "The model did not answer.";
+          state.chatError = true;
+        } else {
+          state.messages = [...state.messages, { role: "assistant", content: reply }];
+          state.chatNote = "Not saved. Discard, or keep it on disk.";
+          state.chatError = false;
         }
-        if (nodes.length === 0) {
-          document.getElementById("nodes").textContent = "Radio " + payload.radio + " is connected. No nodes heard.";
-          return;
-        }
-        document.getElementById("nodes").textContent = nodes.map((node) => {
-          const where = typeof node.lat === "number" ? " at " + node.lat + ", " + node.lon : " (no position)";
-          return node.name + where;
-        }).join(" · ");
       } catch (error) {
-        document.getElementById("nodes").textContent = "No radio report yet.";
+        state.messages = state.messages.slice(0, -1);
+        state.chatNote = "The page could not reach the model.";
+        state.chatError = true;
       }
+      render();
     }
 
-    loadDisk();
-    loadNodes();
+    async function keepChat() {
+      if (!state.messages.length) { state.chatNote = "There is nothing to keep."; render(); return; }
+      const response = await fetch("/api/archive", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "chat", messages: state.messages }) });
+      const payload = await response.json().catch(() => ({}));
+      state.chatNote = response.ok ? `Saved on disk as ${payload.saved}` : "Could not save.";
+      state.chatError = !response.ok;
+      render();
+      refreshDisk();
+    }
+
+    async function refreshDisk() {
+      try { state.disk = await (await fetch("/api/disk")).json(); } catch (error) { state.disk = null; }
+      if (state.tab === "settings" || state.tab === "home") render();
+    }
+    async function refreshNodes() {
+      try { state.nodes = await (await fetch("/api/nodes")).json(); } catch (error) { state.nodes = { radio: null, nodes: [], note: "No radio report yet." }; }
+      if (state.tab === "maps" || state.tab === "community") render();
+    }
+    function readBattery() {
+      const batteryApi = navigator.getBattery;
+      if (!batteryApi) { state.battery = "Not reported"; return; }
+      batteryApi.call(navigator).then((battery) => {
+        const read = () => { state.battery = `${Math.round(battery.level * 100)}%${battery.charging ? " charging" : ""}`; if (state.tab === "home") render(); };
+        read();
+        battery.addEventListener("levelchange", read);
+        battery.addEventListener("chargingchange", read);
+      }).catch(() => { state.battery = "Not reported"; });
+    }
+
+    render();
+    readBattery();
+    refreshDisk();
+    refreshNodes();
+    setInterval(() => {
+      if (state.tab === "home" && state.unlocked && !document.activeElement?.closest("form")) render();
+    }, 30000);
   </script>
 </body>
 </html>
