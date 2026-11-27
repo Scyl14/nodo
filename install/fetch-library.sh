@@ -19,17 +19,17 @@ python3 -m venv /opt/nodo/survival-llm/.venv
 /opt/nodo/survival-llm/.venv/bin/pip install libzim lxml trafilatura
 
 zims=(
-  wikipedia_en_medicine_nopic
-  wikem_en_all_nopic
-  appropedia_en_all_maxi
+  wikipedia_en_medicine
+  wikem_en_all
+  appropedia_en_all
   medlineplus.gov_en_all
   nhs.uk_en_medicines
   wwwnc.cdc.gov_en_all
   ready.gov_en_all
   usda-2015_en
-  wikiciv_en_all_maxi
+  wikiciv_en_all
   gardenology.org_en_all
-  energypedia_en_all_nopic
+  energypedia_en_all
   diy.stackexchange.com_en_all
   outdoors.stackexchange.com_en_all
   cooking.stackexchange.com_en_all
@@ -42,14 +42,51 @@ zims=(
   pets.stackexchange.com_en_all
 )
 if [[ "$choice" == "everything" ]]; then
-  zims+=(wikipedia_en_top1m_nopic ifixit_en_all)
+  zims+=(wikipedia_en_top1m ifixit_en_all)
 fi
 
 cd /opt/nodo/survival-llm
-for name in "${zims[@]}"; do
-  printf 'Fetching %s\n' "$name"
-  python3 library/fetch_zims.py "$name" || printf 'warning: %s was not fetched\n' "$name"
-done
+python3 - "${zims[@]}" <<'PY'
+import os, re, subprocess, sys, urllib.request
+wanted = set(sys.argv[1:])
+prefer = {
+    "wikipedia_en_medicine": "nopic",
+    "wikem_en_all": "nopic",
+    "appropedia_en_all": "maxi",
+    "wikiciv_en_all": "maxi",
+    "energypedia_en_all": "nopic",
+    "wikipedia_en_top1m": "nopic",
+}
+root = "/opt/nodo/survival-llm/library.noindex/zim"
+os.makedirs(root, exist_ok=True)
+catalog = urllib.request.urlopen(
+    "https://library.kiwix.org/catalog/v2/entries?lang=eng&count=5000", timeout=120).read().decode()
+found = {}
+for entry in re.findall(r"<entry>(.*?)</entry>", catalog, re.S):
+    name = re.search(r"<name>(.*?)</name>", entry)
+    flavour = re.search(r"<flavour>(.*?)</flavour>", entry)
+    link = re.search(r'rel="http://opds-spec.org/acquisition/open-access"[^>]*href="([^"]+)"', entry)
+    if not (name and link) or name.group(1) not in wanted:
+        continue
+    found.setdefault(name.group(1), {})[flavour.group(1) if flavour else ""] = link.group(1).removesuffix(".meta4")
+for name in sys.argv[1:]:
+    choices = found.get(name) or {}
+    url = choices.get(prefer.get(name, "")) or next(iter(choices.values()), "")
+    if not url:
+        print(f"skip {name}: not in the catalog", flush=True)
+        continue
+    dest = os.path.join(root, url.rsplit("/", 1)[1])
+    if os.path.exists(dest + ".done"):
+        print(f"already fetched {name}", flush=True)
+        continue
+    print(f"downloading {name}", flush=True)
+    result = subprocess.run(["curl", "-L", "--fail", "-C", "-", "--retry", "3", "--connect-timeout", "30", "-o", dest, url])
+    if result.returncode != 0:
+        print(f"warning: {name} failed, continuing", flush=True)
+        continue
+    open(dest + ".done", "w").close()
+    print(f"fetched {name}", flush=True)
+PY
 python3 library/fetch_manuals.py || printf 'warning: the manuals were not fetched\n'
 python3 library/fetch_risk.py || printf 'warning: the risk notes were not fetched\n'
 
