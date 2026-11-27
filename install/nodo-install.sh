@@ -1,5 +1,5 @@
 #!/bin/bash
-# Bring up the Nodo Wi-Fi on a spare Debian 12 machine.
+# Bring up the Nodo Wi-Fi on a spare Debian 12 or 13 machine.
 # Address 10.41.0.1, network name Nodo. No internet sharing.
 # The interactive console is not part of this script yet.
 set -euo pipefail
@@ -33,7 +33,7 @@ Usage: sudo ./nodo-install.sh --wifi IFACE [options]
   --help
 
 Do not run this on a computer you use every day.
-Use a spare Debian 12 machine. --check is safe anywhere.
+Use a spare Debian 12 or 13 machine. --check is safe anywhere.
 EOF
 }
 
@@ -131,7 +131,7 @@ if [[ "$CHECK" -eq 1 ]]; then
     # shellcheck disable=SC1091
     . /etc/os-release
     if [[ "${ID:-}" != "debian" || "${VERSION_ID:-}" != "12" ]]; then
-      printf 'A real run accepts Debian 12 only. This machine is %s.\n' "${PRETTY_NAME:-unknown}"
+      printf 'A real run accepts Debian 12 or 13 only. This machine is %s.\n' "${PRETTY_NAME:-unknown}"
     fi
   fi
   printf 'Check only. Nothing was changed.\n'
@@ -142,7 +142,7 @@ fi
 [[ -r /etc/os-release ]] || die "Cannot read /etc/os-release."
 # shellcheck disable=SC1091
 . /etc/os-release
-[[ "${ID:-}" == "debian" && "${VERSION_ID:-}" == "12" ]] || die "This installer supports Debian 12 only. Found ${PRETTY_NAME:-unknown}."
+[[ "${ID:-}" == "debian" && ( "${VERSION_ID:-}" == "12" || "${VERSION_ID:-}" == "13" ) ]] || die "This installer supports Debian 12 or 13 only. Found ${PRETTY_NAME:-unknown}."
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update

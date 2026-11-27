@@ -1,0 +1,12 @@
+[Unit]
+Description=Nodo live access point
+After=network.target nginx.service
+Wants=nginx.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/nodo-live-start
+
+[Install]
+WantedBy=multi-user.target

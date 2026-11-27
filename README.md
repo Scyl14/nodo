@@ -33,7 +33,7 @@ The repository and the console are in English.
 
 ## In this repository
 
-Cloning these files does not open a Wi-Fi. The installer below does that, on a spare Debian 12 machine, and only after you run it as root.
+Cloning these files does not open a Wi-Fi and does not build an ISO. The scripts below do that, on a Debian machine, and only after you run them.
 
 | Path | What it is |
 | --- | --- |
@@ -42,20 +42,34 @@ Cloning these files does not open a Wi-Fi. The installer below does that, on a s
 | `src/lib/nodo/library.ts` | Short notes kept on the machine |
 | `src/styles.css` | Colors and type |
 | `public/favicon.svg` | The mark |
-| `install/nodo-install.sh` | Debian 12 Wi-Fi setup. Does not install the console |
+| `install/nodo-install.sh` | Wi-Fi setup for a Debian 12 or 13 computer. Does not install the console |
+| `install/build-iso.sh` | Builds a Debian 13 live ISO. Run it on Debian, not here |
 | `install/www/index.html` | The short page served at 10.41.0.1 until the console is packaged |
+
+## Why Debian
+
+Nodo is an appliance, not a desktop. Debian stable changes slowly, and the image does not use Ubuntu's snap packages or its own live-image tools. Debian 13 is the current stable release. Debian 12 still gets security fixes until June 2028, but its full support ended in July 2026, so the ISO is Debian 13.
+
+Ubuntu Server would also boot. It is not a better base for this image, and this build script does not run on it.
 
 ## Installer
 
-`install/nodo-install.sh` is for a spare computer running Debian 12, with a Wi-Fi adapter that can be an access point. Do not run it on a machine you use every day. It does not share that computer's internet.
-
-The install needs a network once, so it can download packages. After that, phones join the Wi-Fi named Nodo and open `http://10.41.0.1`. That page only says the Wi-Fi is up.
+`install/nodo-install.sh` is for a spare computer already running Debian 12 or 13, with a Wi-Fi adapter that can be an access point. Do not run it on a machine you use every day. It does not share that computer's internet.
 
 ```sh
 ./install/nodo-install.sh --check --wifi wlan0
 sudo ./install/nodo-install.sh --wifi wlan0
 ```
 
-`--check` prints the plan and changes nothing. `--country` defaults to `IT`. Add `--passphrase` only if the Wi-Fi itself should be closed. An open network is the default, because the console, not the Wi-Fi password, is what accepts a person.
+`--check` prints the plan and changes nothing. `--country` defaults to `IT`. The Wi-Fi is open unless you pass `--passphrase`.
 
-This script has not been run on real hardware yet. `--check` is the part that is safe to try.
+## Live ISO
+
+`install/build-iso.sh` builds `nodo-amd64.iso` on a Debian computer with internet and at least 12 GB free. A virtual machine is the right place. The ISO runs from a USB stick and does not install onto the hard disk.
+
+```sh
+./install/build-iso.sh --check
+sudo ./install/build-iso.sh
+```
+
+The build has not been run from this repository's preview. The first time you run it is the first test. The page on the ISO still says the console is not installed.

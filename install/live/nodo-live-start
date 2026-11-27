@@ -1,0 +1,98 @@
+#!/bin/bash
+# Runs on the live ISO. Starts the Nodo Wi-Fi if an adapter can be an access point.
+# Never touches Ethernet. Never shares internet. Failure here must not stop the boot.
+set -u
+
+log() { printf '%s\n' "$1"; }
+
+exec >>/var/log/nodo-live.log 2>&1
+log "nodo live start"
+
+country=IT
+channel=6
+if [[ -r /etc/nodo/live.env ]]; then
+  # shellcheck disable=SC1091
+  . /etc/nodo/live.env
+fi
+
+iface=""
+for dev in /sys/class/net/*; do
+  name="$(basename "$dev")"
+  [[ "$name" == "lo" ]] && continue
+  [[ -d "$dev/wireless" ]] || continue
+  phy="$(iw dev "$name" info 2>/dev/null | awk '/wiphy/ { print "phy"$2; exit }')"
+  [[ -n "$phy" ]] || continue
+  if iw phy "$phy" info 2>/dev/null | grep -q '\* AP'; then
+    iface="$name"
+    break
+  fi
+done
+
+install -d -m 0755 /etc/nodo /var/lib/nodo/www
+if [[ ! -f /var/lib/nodo/www/index.html && -f /usr/share/nodo/www/index.html ]]; then
+  cp -a /usr/share/nodo/www/. /var/lib/nodo/www/
+fi
+
+rm -f /etc/nginx/sites-enabled/default
+ln -sfn /etc/nginx/sites-available/nodo /etc/nginx/sites-enabled/nodo
+nginx -t && systemctl reload nginx || systemctl restart nginx || true
+
+if [[ -z "$iface" ]]; then
+  log "No adapter advertised access-point mode. Wi-Fi Nodo was not started."
+  log "On this machine the page is only at http://127.0.0.1"
+  exit 0
+fi
+
+log "Using ${iface}"
+if command -v nmcli >/dev/null 2>&1; then
+  nmcli device set "$iface" managed no || true
+fi
+ip link set "$iface" up || true
+iw reg set "$country" || true
+
+cat > /etc/nodo/hostapd.conf <<EOF
+interface=${iface}
+driver=nl80211
+ssid=Nodo
+country_code=${country}
+ieee80211d=1
+hw_mode=g
+channel=${channel}
+wmm_enabled=1
+auth_algs=1
+ignore_broadcast_ssid=0
+EOF
+chmod 600 /etc/nodo/hostapd.conf
+
+cat > /etc/nodo/dnsmasq.conf <<EOF
+interface=${iface}
+bind-interfaces
+listen-address=10.41.0.1
+dhcp-range=10.41.0.50,10.41.0.200,255.255.255.0,12h
+dhcp-option=option:router,10.41.0.1
+dhcp-option=option:dns-server,10.41.0.1
+domain=local
+local=/local/
+address=/nodo.local/10.41.0.1
+address=/connectivitycheck.gstatic.com/10.41.0.1
+address=/connectivitycheck.android.com/10.41.0.1
+address=/captive.apple.com/10.41.0.1
+address=/www.msftconnecttest.com/10.41.0.1
+no-resolv
+no-hosts
+EOF
+
+systemctl stop hostapd.service dnsmasq.service >/dev/null 2>&1 || true
+if ! hostapd -B -P /run/nodo-hostapd.pid /etc/nodo/hostapd.conf; then
+  log "hostapd failed. Wi-Fi Nodo was not started."
+  exit 0
+fi
+sleep 1
+ip addr replace 10.41.0.1/24 dev "$iface" || true
+if ! dnsmasq --conf-file=/etc/nodo/dnsmasq.conf --pid-file=/run/nodo-dnsmasq.pid; then
+  log "dnsmasq failed. The address may still answer on the machine itself."
+  exit 0
+fi
+
+log "Nodo is at http://10.41.0.1 on Wi-Fi Nodo"
+exit 0

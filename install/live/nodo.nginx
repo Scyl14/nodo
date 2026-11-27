@@ -1,0 +1,10 @@
+server {
+  listen 127.0.0.1:80;
+  listen 10.41.0.1:80;
+  server_name nodo.local 10.41.0.1;
+  root /var/lib/nodo/www;
+  index index.html;
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+}

@@ -4,3 +4,6 @@ dist/
 .env
 .env.*
 .DS_Store
+
+nodo-live-work/
+nodo-amd64.iso
