@@ -51,7 +51,7 @@ uninstall_nodo() {
   fi
   [[ "$(id -u)" -eq 0 ]] || die "Run as root: sudo ./install.sh --uninstall"
   local unit
-  for unit in nodo-kiosk nodo-wifi nodo-llm nodo-portal nodo-mesh.timer nodo-mesh nodo-hostapd nodo-addr nodo-dnsmasq; do
+  for unit in nodo-kiosk nodo-wifi nodo-llm nodo-portal nodo-mesh-ai nodo-mesh.timer nodo-mesh nodo-hostapd nodo-addr nodo-dnsmasq; do
     systemctl disable --now "${unit}.service" >/dev/null 2>&1 || true
     systemctl disable --now "${unit}" >/dev/null 2>&1 || true
   done
@@ -62,6 +62,7 @@ uninstall_nodo() {
     /etc/systemd/system/nodo-portal.service \
     /etc/systemd/system/nodo-mesh.service \
     /etc/systemd/system/nodo-mesh.timer \
+    /etc/systemd/system/nodo-mesh-ai.service \
     /etc/systemd/system/nodo-hostapd.service \
     /etc/systemd/system/nodo-addr.service \
     /etc/systemd/system/nodo-dnsmasq.service \
@@ -587,6 +588,9 @@ systemctl enable nginx nodo-portal.service
 systemctl restart nodo-portal.service
 systemctl restart nginx
 systemctl enable --now nodo-mesh.timer
+if [[ -x "${ROOT}/install/enable-mesh-ai.sh" ]]; then
+  "${ROOT}/install/enable-mesh-ai.sh" || say "warning: /ai on the radio did not start. sudo ./install/enable-mesh-ai.sh"
+fi
 if [[ -n "$llama_bin" && -e /var/lib/nodo/models/active.gguf ]]; then
   systemctl enable nodo-llm.service
   systemctl restart nodo-llm.service || say "warning: the model service did not start. journalctl -u nodo-llm"
