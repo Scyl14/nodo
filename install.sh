@@ -354,17 +354,7 @@ if [[ -z "$llama_bin" && "$model" != "skip" ]]; then
 fi
 
 if [[ "$library" != "skip" ]]; then
-  if [[ ! -d /opt/nodo/survival-llm/.git ]]; then
-    git clone --depth 1 https://github.com/anonnerdfrenzy/survival-llm.git /opt/nodo/survival-llm
-  fi
-  python3 -m venv /opt/nodo/survival-llm/.venv
-  /opt/nodo/survival-llm/.venv/bin/pip install -U pip
-  /opt/nodo/survival-llm/.venv/bin/pip install libzim lxml trafilatura
-  if [[ "$library" == "everything" ]]; then
-    LIBRARY_OUT=/var/lib/nodo/library /opt/nodo/survival-llm/.venv/bin/python /opt/nodo/survival-llm/library/build_library.py --public
-  else
-    LIBRARY_OUT=/var/lib/nodo/library /opt/nodo/survival-llm/.venv/bin/python /opt/nodo/survival-llm/library/build_library.py --lite
-  fi
+  "${ROOT}/install/fetch-library.sh" "$library"
 fi
 
 say "Voice: Piper, and whisper.cpp base. Both can stay unused."
@@ -584,32 +574,11 @@ EOF
   systemctl enable nodo-wifi.service
 fi
 
-browser=""
-if command -v chromium >/dev/null 2>&1; then browser="$(command -v chromium)"
-elif command -v chromium-browser >/dev/null 2>&1; then browser="$(command -v chromium-browser)"
-fi
-if [[ -n "$browser" ]]; then
-  cat > /etc/systemd/system/nodo-kiosk.service <<EOF
-[Unit]
-Description=Nodo fullscreen dashboard
-After=nginx.service nodo-portal.service
-ConditionPathExists=/etc/nodo/kiosk
-
-[Service]
-Type=simple
-Environment=DISPLAY=:0
-ExecStart=${browser} --kiosk --noerrdialogs http://127.0.0.1/
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=graphical.target
-EOF
-  if [[ "$do_kiosk" -eq 1 ]]; then
-    systemctl enable nodo-kiosk.service
-  else
-    systemctl disable nodo-kiosk.service >/dev/null 2>&1 || true
-  fi
+if [[ "$do_kiosk" -eq 1 ]]; then
+  "${ROOT}/install/enable-kiosk.sh" || say "warning: fullscreen did not start. Run sudo ./install/enable-kiosk.sh"
+else
+  printf 'off\n' > /etc/nodo/kiosk
+  systemctl disable --now nodo-kiosk.service >/dev/null 2>&1 || true
 fi
 
 systemctl daemon-reload

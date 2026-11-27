@@ -288,6 +288,7 @@
         maxZoom: header.maxZoom || 15,
         style: {
           version: 8,
+          glyphs: "/vendor/fonts/{fontstack}/{range}.pbf",
           sources: { nodo: { type: "vector", url: "pmtiles://" + url } },
           layers: [
             { id: "bg", type: "background", paint: { "background-color": "#d9d3c3" } },
@@ -296,7 +297,9 @@
             { id: "landuse", type: "fill", source: "nodo", "source-layer": "landuse", paint: { "fill-color": "#d5d8b8", "fill-opacity": 0.7 } },
             { id: "water", type: "fill", source: "nodo", "source-layer": "water", paint: { "fill-color": "#8aa4b5" } },
             { id: "roads", type: "line", source: "nodo", "source-layer": "roads", paint: { "line-color": "#fffaf0", "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.3, 14, 3] } },
-            { id: "buildings", type: "fill", source: "nodo", "source-layer": "buildings", minzoom: 13, paint: { "fill-color": "#c9bfa8" } }
+            { id: "buildings", type: "fill", source: "nodo", "source-layer": "buildings", minzoom: 13, paint: { "fill-color": "#c9bfa8" } },
+            { id: "road-names", type: "symbol", source: "nodo", "source-layer": "roads", minzoom: 13, layout: { "symbol-placement": "line", "text-field": ["coalesce", ["get", "name"], ""], "text-font": ["Noto Sans Regular"], "text-size": 12 }, paint: { "text-color": "#1a1408", "text-halo-color": "#f7f4ea", "text-halo-width": 1.2 } },
+            { id: "place-names", type: "symbol", source: "nodo", "source-layer": "places", layout: { "text-field": ["coalesce", ["get", "name"], ""], "text-font": ["Noto Sans Regular"], "text-size": ["interpolate", ["linear"], ["zoom"], 6, 11, 14, 16] }, paint: { "text-color": "#1a1408", "text-halo-color": "#f7f4ea", "text-halo-width": 1.2 } }
           ]
         }
       });
